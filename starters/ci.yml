@@ -1,0 +1,37 @@
+# Checks a pull request, running only what its files need. Copy to .github/workflows/ci.yml.
+#
+# A pnpm workspace needs no filters: each package is an area, and the commands narrow themselves with the CI_*
+# variables. A single-package repository leaves them empty and runs everything. docs/selective.md explains it.
+
+name: ci
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    uses: buun-group/actions/.github/workflows/ci.yml@v1
+    with:
+      # Set CI_RUNS_ON once on the organisation, such as ["self-hosted","buun"], and every repository runs free.
+      runs-on: ${{ vars.CI_RUNS_ON || '"ubuntu-latest"' }}
+      standards-repository: ${{ vars.STANDARDS_REPOSITORY }}
+      standards-app-client-id: ${{ vars.STANDARDS_APP_CLIENT_ID }}
+      # rebuild: esbuild workerd              # when tests or dry runs use wrangler or the Workers pool
+      # filters: |                            # areas that are not packages
+      #   migrations: apps/*/migrations/**
+      tasks: |
+        *: pnpm lint
+        *: pnpm -r $CI_PNPM_FILTER --if-present run typecheck
+        *: pnpm -r $CI_PNPM_FILTER --if-present run test
+        *: pnpm -r $CI_PNPM_FILTER --if-present run check:deploy
+    secrets:
+      STANDARDS_APP_PRIVATE_KEY: ${{ secrets.STANDARDS_APP_PRIVATE_KEY }}

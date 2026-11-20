@@ -1,0 +1,68 @@
+# A pnpm and turbo monorepo's deploys, on these actions: main is checked, then only the Workers whose code changed
+# since the last green deploy are deployed.
+#
+# base: last-success compares with this workflow's last successful run, not the previous commit. A deploy that failed
+# is therefore retried by the next push, and three quick pushes deploy everything all three changed.
+#
+# Each Worker is a job with `if: fromJSON(needs.ci.outputs.areas).<package>`; the area names come from the package
+# names (@acme/api is api). A full run (the lockfile changed, or a manual run) deploys every one.
+
+name: deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  ci:
+    uses: buun-group/actions/.github/workflows/ci.yml@v1
+    with:
+      runs-on: ${{ vars.CI_RUNS_ON || '"ubuntu-latest"' }}
+      standards-repository: ${{ vars.STANDARDS_REPOSITORY }}
+      standards-app-client-id: ${{ vars.STANDARDS_APP_CLIENT_ID }}
+      rebuild: esbuild workerd
+      base: last-success
+      tasks: |
+        *: pnpm lint
+        *: pnpm turbo run typecheck test $CI_TURBO_AFFECTED
+    secrets:
+      STANDARDS_APP_PRIVATE_KEY: ${{ secrets.STANDARDS_APP_PRIVATE_KEY }}
+
+  api:
+    needs: ci
+    if: fromJSON(needs.ci.outputs.areas).api
+    uses: buun-group/actions/.github/workflows/deploy.yml@v1
+    with:
+      environment: production
+      runs-on: ${{ vars.CI_RUNS_ON || '"ubuntu-latest"' }}
+      working-directory: apps/api
+      d1-database: DB
+      smoke-path: /health
+      url: https://api.example.com
+    secrets: inherit
+
+  # The web app calls the API, so when both changed it waits for api; when only it changed, it goes alone (a skipped
+  # api is not a failure).
+  web:
+    needs: [ci, api]
+    if: ${{ !cancelled() && !failure() && fromJSON(needs.ci.outputs.areas).web }}
+    uses: buun-group/actions/.github/workflows/deploy.yml@v1
+    with:
+      environment: production
+      runs-on: ${{ vars.CI_RUNS_ON || '"ubuntu-latest"' }}
+      working-directory: apps/web
+      build-command: pnpm run build:production
+      smoke-path: /
+      url: https://example.com
+    secrets: inherit
+
+  # Every other Worker follows the same four lines.

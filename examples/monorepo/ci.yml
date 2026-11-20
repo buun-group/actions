@@ -1,0 +1,49 @@
+# A pnpm and turbo monorepo's whole pull request check, on these actions. It replaces a ci, a standards, a commit
+# guard and a submodule workflow: four workflows, four runners and three installs a push become one.
+#
+# Nothing below names an app or a package: the workspace's own graph (pnpm) picks the areas, and turbo --affected and
+# pnpm's filter narrow each command to what changed. Adding an app needs no edit here.
+#
+#   A pull request that changes                runs
+#   apps/web/src/**                            lint; typecheck, test and dry-run bundle for web only
+#   packages/ui/**                             ui, and every app that uses it
+#   apps/api/migrations/0042_x.sql             api's checks, and its migrations applied to a fresh local D1
+#   pnpm-lock.yaml, turbo.json, a workflow     everything (full run), and the dependency audit
+#   only Markdown outside apps/docs            guard and standards, then nothing: green in seconds
+
+name: ci
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    uses: buun-group/actions/.github/workflows/ci.yml@v1
+    with:
+      runs-on: ${{ vars.CI_RUNS_ON || '"ubuntu-latest"' }}
+      standards-repository: ${{ vars.STANDARDS_REPOSITORY }}
+      standards-app-client-id: ${{ vars.STANDARDS_APP_CLIENT_ID }}
+      rebuild: esbuild workerd
+      # The docs app is Markdown, and it is a product: keep its pages in the selection.
+      ignore: |
+        docs/** .changeset/** /README.md
+        apps/*/README.md packages/*/README.md
+      # Areas the package graph cannot see: a migration is SQL, not an import.
+      filters: |
+        migrations: apps/*/migrations/**
+      tasks: |
+        *: pnpm lint
+        *: pnpm turbo run typecheck test $CI_TURBO_AFFECTED
+        *: pnpm -r $CI_PNPM_FILTER --if-present run check:deploy
+        migrations: pnpm -r $CI_PNPM_FILTER exec sh -c 'if [ -d migrations ]; then wrangler d1 migrations apply DB --local; fi'
+    secrets:
+      STANDARDS_APP_PRIVATE_KEY: ${{ secrets.STANDARDS_APP_PRIVATE_KEY }}

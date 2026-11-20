@@ -1,0 +1,81 @@
+name: Buun setup
+description: Install pnpm and Node, restore the pnpm store, and install the workspace from its lockfile without running install scripts.
+
+inputs:
+  working-directory:
+    description: Where package.json and the lockfile live.
+    default: .
+  node-version:
+    description: A Node version. Empty reads node-version-file instead.
+    default: ''
+  node-version-file:
+    description: File naming the Node version, relative to the repository root.
+    default: .nvmrc
+  install:
+    description: "'true' sets up pnpm and Node and installs; 'false' sets them up only; 'only' installs, for a second call after a 'false' one."
+    default: 'true'
+  install-args:
+    description: Extra arguments for pnpm install.
+    default: ''
+  rebuild:
+    description: Packages whose install script must run after all, space separated, such as "esbuild workerd" for wrangler and vitest-pool-workers.
+    default: ''
+  registry-url:
+    description: A registry to write into .npmrc (https://npm.pkg.github.com for GitHub Packages). Empty leaves it alone.
+    default: ''
+  scope:
+    description: The scope served by registry-url, such as @buun-group.
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - if: inputs.install != 'only'
+      uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      with:
+        package_json_file: ${{ inputs.working-directory }}/package.json
+
+    # A repository without the version file still gets a Node: the current LTS.
+    - name: Find the Node version
+      id: node
+      if: inputs.install != 'only'
+      shell: bash
+      env:
+        VERSION: ${{ inputs.node-version }}
+        FILE: ${{ inputs.node-version-file }}
+      run: |
+        if [ -n "$VERSION" ]; then echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+        elif [ -f "$FILE" ]; then echo "file=$FILE" >> "$GITHUB_OUTPUT"
+        else echo "version=lts/*" >> "$GITHUB_OUTPUT"; fi
+
+    - if: inputs.install != 'only'
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      with:
+        node-version: ${{ steps.node.outputs.version }}
+        node-version-file: ${{ steps.node.outputs.file }}
+        cache: pnpm
+        cache-dependency-path: ${{ inputs.working-directory }}/pnpm-lock.yaml
+        registry-url: ${{ inputs.registry-url }}
+        scope: ${{ inputs.scope }}
+
+    # --ignore-scripts: a dependency's install script never runs in CI (core/dependencies). A package that needs a
+    # native build is rebuilt by name in the caller, such as `pnpm rebuild esbuild workerd`.
+    - name: Install from the lockfile
+      if: inputs.install == 'true' || inputs.install == 'only'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        EXTRA: ${{ inputs.install-args }}
+      run: |
+        # shellcheck disable=SC2086
+        pnpm install --frozen-lockfile --ignore-scripts $EXTRA
+
+    - name: Run the install scripts named in rebuild
+      if: (inputs.install == 'true' || inputs.install == 'only') && inputs.rebuild != ''
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        PACKAGES: ${{ inputs.rebuild }}
+      run: |
+        # shellcheck disable=SC2086
+        pnpm rebuild $PACKAGES

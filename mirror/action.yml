@@ -1,0 +1,118 @@
+name: Buun mirror
+description: Copy a folder of this repository to another repository (a public SDK, CLI or examples mirror), commit it and optionally tag it. Pushes with a token a GitHub App mints for that one repository, so no personal access token is stored.
+
+inputs:
+  app-client-id:
+    description: Client id of a GitHub App installed on the mirror repository with Contents read and write.
+    required: true
+  app-private-key:
+    description: That app's private key.
+    required: true
+  repository:
+    description: The mirror, owner/name.
+    required: true
+  source-directory:
+    description: The folder of this repository to copy. Its contents become the mirror's root.
+    required: true
+  prepare-command:
+    description: Run in source-directory before copying, such as rewriting workspace dependencies to real versions. Empty skips it.
+    default: ''
+  keep:
+    description: Paths the mirror owns and the copy never touches, one per line (README.md, LICENSE, .github/).
+    default: |
+      .github/
+      README.md
+      LICENSE
+  branch:
+    default: main
+  tag:
+    description: A tag to create on the mirror's new commit, such as v1.2.0. Empty creates none.
+    default: ''
+  message:
+    description: The mirror commit's subject. Empty names the source commit.
+    default: ''
+
+outputs:
+  changed:
+    description: "'true' when the mirror got a new commit."
+    value: ${{ steps.push.outputs.changed }}
+
+runs:
+  using: composite
+  steps:
+    - name: Split the mirror's name
+      id: name
+      shell: bash
+      env:
+        REPOSITORY: ${{ inputs.repository }}
+      run: |
+        echo "owner=${REPOSITORY%%/*}" >> "$GITHUB_OUTPUT"
+        echo "name=${REPOSITORY#*/}" >> "$GITHUB_OUTPUT"
+
+    - id: token
+      uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+      with:
+        client-id: ${{ inputs.app-client-id }}
+        private-key: ${{ inputs.app-private-key }}
+        owner: ${{ steps.name.outputs.owner }}
+        repositories: ${{ steps.name.outputs.name }}
+        permission-contents: write
+
+    - name: Prepare the folder
+      if: inputs.prepare-command != ''
+      shell: bash
+      working-directory: ${{ inputs.source-directory }}
+      env:
+        COMMAND: ${{ inputs.prepare-command }}
+      run: bash -euo pipefail -c "$COMMAND"
+
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        repository: ${{ inputs.repository }}
+        ref: ${{ inputs.branch }}
+        path: ${{ runner.temp }}/mirror
+        token: ${{ steps.token.outputs.token }}
+        persist-credentials: true
+
+    - name: Copy, commit, push and tag
+      id: push
+      shell: bash
+      env:
+        SOURCE: ${{ inputs.source-directory }}
+        MIRROR: ${{ runner.temp }}/mirror
+        KEEP: ${{ inputs.keep }}
+        BRANCH: ${{ inputs.branch }}
+        TAG: ${{ inputs.tag }}
+        MESSAGE: ${{ inputs.message }}
+        SOURCE_REPO: ${{ github.repository }}
+        SHA: ${{ github.sha }}
+        REPOSITORY: ${{ inputs.repository }}
+      run: |
+        set -euo pipefail
+        excludes=(--exclude=.git/)
+        while IFS= read -r path; do
+          [ -n "$path" ] && excludes+=("--exclude=/${path#/}")
+        done <<<"$KEEP"
+        rsync -a --delete "${excludes[@]}" "$SOURCE/" "$MIRROR/"
+        cd "$MIRROR"
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git add -A
+        if git diff --cached --quiet; then
+          echo "changed=false" >> "$GITHUB_OUTPUT"
+          echo "$REPOSITORY already matches $SOURCE." >> "$GITHUB_STEP_SUMMARY"
+        else
+          git commit -q -m "${MESSAGE:-sync from $SOURCE_REPO@${SHA:0:8}}"
+          git push origin "HEAD:$BRANCH"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          echo "Pushed $SOURCE to $REPOSITORY $BRANCH." >> "$GITHUB_STEP_SUMMARY"
+        fi
+        if [ -n "$TAG" ]; then
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null; then
+            echo "::error::$REPOSITORY already has the tag $TAG."
+            exit 1
+          fi
+          git tag "$TAG"
+          git push origin "refs/tags/$TAG"
+          echo "Tagged $REPOSITORY $TAG." >> "$GITHUB_STEP_SUMMARY"
+        fi

@@ -1,0 +1,31 @@
+name: Buun tasks
+description: Run the commands whose area changed, from the changes action's areas, in one job. Every failure is reported at the end, not just the first.
+
+inputs:
+  tasks:
+    description: |
+      One command per line, "area: command". "a,b: command" runs when either changed; "*: command" always runs;
+      an indented line continues the command above. In a full run, every task runs. Example:
+        *: pnpm lint
+        api: pnpm --filter @acme/api test
+        site,ui: pnpm --filter @acme/site check:deploy
+    required: true
+  areas:
+    description: The changes action's areas output.
+    default: '{}'
+  full:
+    description: The changes action's full output.
+    default: 'false'
+  working-directory:
+    default: .
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        TASKS: ${{ inputs.tasks }}
+        AREAS: ${{ inputs.areas }}
+        FULL: ${{ inputs.full }}
+        WORKING_DIRECTORY: ${{ inputs.working-directory }}
+      run: node "$GITHUB_ACTION_PATH/tasks.mjs"

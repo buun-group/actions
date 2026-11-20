@@ -1,0 +1,71 @@
+name: Buun changes
+description: Work out what a run must do from the files it changed. Names areas by glob, says which changed, forces a full run when a shared file changes, and says when only ignored files did. Needs a checkout with history (fetch-depth 0, filter blob:none).
+
+inputs:
+  filters:
+    description: |
+      One area per line, "name: glob glob !glob". A glob without "/" matches a file name at any depth (*.md);
+      with "/" it matches from the root (apps/api/**). Example:
+        api: apps/api/** packages/core/**
+        site: apps/site/** packages/ui/**
+    default: ''
+  full-run:
+    description: Globs that force a full run when any of them changes; every area is then true. Empty keeps the default (the root lockfile, package.json, workspace, .nvmrc, turbo.json, tsconfig, vitest config, and any workflow); "-" turns it off.
+    default: ''
+  ignore:
+    description: Globs set aside before anything is decided; when nothing else changed, `none` is true. Empty keeps the default (*.md, docs/**, .changeset/**, LICENSE); "-" turns it off.
+    default: ''
+  workspace:
+    description: pnpm adds one area per workspace package (named after the part past its scope, so @acme/api is api), true when it changed or depends on one that did. auto does so when pnpm-workspace.yaml exists. Needs pnpm on the path (setup with install false), not node_modules.
+    default: auto
+  base:
+    description: Empty compares with the pull request's base or the push's previous commit. "last-success" compares with this workflow's last successful run on the branch (a deploy then retries what failed). Or a commit.
+    default: ''
+  scope:
+    description: auto selects by the changes; full runs everything.
+    default: auto
+  token:
+    description: Reads the last successful run when base is last-success.
+    default: ${{ github.token }}
+
+outputs:
+  full:
+    description: "'true' when everything runs."
+    value: ${{ steps.plan.outputs.full }}
+  none:
+    description: "'true' when only ignored files changed."
+    value: ${{ steps.plan.outputs.none }}
+  areas:
+    description: 'JSON {"name": true|false}; use fromJSON(steps.x.outputs.areas).name.'
+    value: ${{ steps.plan.outputs.areas }}
+  changed:
+    description: JSON array of the areas that run.
+    value: ${{ steps.plan.outputs.changed }}
+  base:
+    description: The commit compared with; empty on a full run with no base.
+    value: ${{ steps.plan.outputs.base }}
+  files:
+    description: Path of a file listing the changed files that were not ignored, one per line.
+    value: ${{ steps.plan.outputs.files }}
+  count:
+    value: ${{ steps.plan.outputs.count }}
+
+runs:
+  using: composite
+  steps:
+    - id: plan
+      shell: bash
+      env:
+        FILTERS: ${{ inputs.filters }}
+        WORKSPACE: ${{ inputs.workspace }}
+        FULL_RUN: ${{ inputs.full-run }}
+        IGNORE: ${{ inputs.ignore }}
+        BASE: ${{ inputs.base }}
+        SCOPE: ${{ inputs.scope }}
+        TOKEN: ${{ inputs.token }}
+        HEAD: ${{ github.sha }}
+        PR_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+        BEFORE: ${{ github.event.before }}
+        BRANCH: ${{ github.ref_name }}
+        WORKFLOW_REF: ${{ github.workflow_ref }}
+      run: node "$GITHUB_ACTION_PATH/changes.mjs"

@@ -1,0 +1,109 @@
+name: Buun npm publish
+description: Publish one package to npm with trusted publishing (OIDC) and provenance, or to GitHub Packages with the job's own token. Skips a version the registry already has. Needs Node set up (setup) and, for npm, a job with id-token write on GitHub's runners.
+
+inputs:
+  package-directory:
+    description: The package's folder.
+    required: true
+  registry:
+    description: npm (registry.npmjs.org, trusted publishing) or github (npm.pkg.github.com, the job's GITHUB_TOKEN with packages write).
+    default: npm
+  dist-tag:
+    default: latest
+  publisher:
+    description: "npm, or pnpm for a package whose dependencies use the workspace: protocol."
+    default: npm
+  github-token:
+    description: For registry github only.
+    default: ''
+  npm-version:
+    description: The npm that publishes. Trusted publishing needs 11.5.1 or later.
+    default: 11.21.3
+
+outputs:
+  published:
+    description: "'true' when this run published."
+    value: ${{ steps.publish.outputs.published || 'false' }}
+  name:
+    value: ${{ steps.package.outputs.name }}
+  version:
+    value: ${{ steps.package.outputs.version }}
+
+runs:
+  using: composite
+  steps:
+    - name: Use an npm that does trusted publishing
+      if: inputs.registry == 'npm'
+      shell: bash
+      env:
+        NPM_VERSION: ${{ inputs.npm-version }}
+      # An exact version, outside any lockfile on purpose: this is the publisher itself, not a dependency.
+      run: npm install --global "npm@$NPM_VERSION" # zizmor: ignore[adhoc-packages]
+
+    - name: Read the package, and whether the registry has this version
+      id: package
+      shell: bash
+      working-directory: ${{ inputs.package-directory }}
+      env:
+        REGISTRY: ${{ inputs.registry }}
+        NODE_AUTH_TOKEN: ${{ inputs.github-token }}
+      run: |
+        set -euo pipefail
+        # The token stays in the environment; the file names it, so it is never written to disk.
+        userconfig="$RUNNER_TEMP/.npmrc-publish"
+        case "$REGISTRY" in
+          npm) url=https://registry.npmjs.org; : > "$userconfig" ;;
+          github)
+            url=https://npm.pkg.github.com
+            test -n "$NODE_AUTH_TOKEN" || { echo "::error::registry github needs github-token."; exit 1; }
+            printf '//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}\n' > "$userconfig" ;;
+          *) echo "::error::registry must be npm or github, not $REGISTRY"; exit 1 ;;
+        esac
+        name="$(node -p "require('./package.json').name")"
+        version="$(node -p "require('./package.json').version")"
+        echo "url=$url" >> "$GITHUB_OUTPUT"
+        echo "userconfig=$userconfig" >> "$GITHUB_OUTPUT"
+        echo "name=$name" >> "$GITHUB_OUTPUT"
+        echo "version=$version" >> "$GITHUB_OUTPUT"
+        if NPM_CONFIG_USERCONFIG="$userconfig" npm view "$name@$version" version --registry "$url" >/dev/null 2>&1; then
+          echo "exists=true" >> "$GITHUB_OUTPUT"
+          echo "$name@$version is already on $url. Nothing to publish." >> "$GITHUB_STEP_SUMMARY"
+        else
+          echo "exists=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Publish
+      id: publish
+      if: steps.package.outputs.exists == 'false'
+      shell: bash
+      working-directory: ${{ inputs.package-directory }}
+      env:
+        REGISTRY: ${{ inputs.registry }}
+        URL: ${{ steps.package.outputs.url }}
+        PUBLISHER: ${{ inputs.publisher }}
+        DIST_TAG: ${{ inputs.dist-tag }}
+        NAME: ${{ steps.package.outputs.name }}
+        VERSION: ${{ steps.package.outputs.version }}
+        NODE_AUTH_TOKEN: ${{ inputs.github-token }}
+        NPM_CONFIG_USERCONFIG: ${{ steps.package.outputs.userconfig }}
+        PRIVATE: ${{ github.event.repository.private }}
+      run: |
+        set -euo pipefail
+        args=(--registry "$URL" --tag "$DIST_TAG")
+        if [ "$REGISTRY" = npm ]; then
+          args+=(--access public)
+          # npm signs provenance only for a public source repository; from a private one it refuses the publish.
+          # Trusted publishing still works there, so the package is published without the attestation.
+          if [ "$PRIVATE" = true ]; then
+            echo "::notice::This repository is private, so npm cannot record provenance. Publish from a public mirror to get it."
+          else
+            args+=(--provenance)
+          fi
+        fi
+        case "$PUBLISHER" in
+          npm) npm publish "${args[@]}" ;;
+          pnpm) pnpm publish "${args[@]}" --no-git-checks ;;
+          *) echo "::error::publisher must be npm or pnpm, not $PUBLISHER"; exit 1 ;;
+        esac
+        echo "published=true" >> "$GITHUB_OUTPUT"
+        echo "Published $NAME@$VERSION to $URL, dist-tag $DIST_TAG." >> "$GITHUB_STEP_SUMMARY"

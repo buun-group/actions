@@ -1,0 +1,42 @@
+# Versions and publishes an npm package. Copy to .github/workflows/release.yml, keeping that file name: the package's
+# trusted publisher on npmjs.com names this repository and release.yml.
+#
+# release-please keeps a pull request open with the next version and changelog. Merging it tags the release, and the
+# publish job then runs on GitHub's own runners, which trusted publishing needs.
+
+name: release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  please:
+    runs-on: ${{ fromJSON(vars.CI_RUNS_ON || '"ubuntu-latest"') }}
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      released: ${{ steps.please.outputs['packages/sdk--release_created'] }}
+    steps:
+      - id: please
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+
+  sdk:
+    needs: please
+    if: needs.please.outputs.released == 'true'
+    uses: buun-group/actions/.github/workflows/release-npm.yml@v1
+    with:
+      package-directory: packages/sdk
+      test-command: pnpm test
+    permissions:
+      contents: read
+      id-token: write

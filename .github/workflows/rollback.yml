@@ -1,0 +1,155 @@
+# Reusable: put a Worker back on an earlier version in one step (packs/cloudflare/ci-cd, section 7), and optionally
+# its D1 database back to a Time Travel bookmark.
+#
+# No version id rolls back to the one before the current deployment. The code goes back first, then the data: the
+# earlier code tolerates the newer schema (migrations are additive), but newer code may not tolerate the older one.
+#
+# Restoring D1 puts the schema AND every row back to the bookmark. Writes made since are gone from the database (the
+# run prints the undo bookmark, so a restore can itself be undone). Use it when the deploy damaged data; when only
+# the code is wrong, roll the code back and leave the data.
+#
+#   on:
+#     workflow_dispatch:
+#       inputs:
+#         environment: { type: choice, options: [preview, production] }
+#         version-id: { type: string, default: '' }
+#   jobs:
+#     rollback:
+#       uses: buun-group/actions/.github/workflows/rollback.yml@v1
+#       with:
+#         environment: ${{ inputs.environment }}
+#         version-id: ${{ inputs.version-id }}
+#         working-directory: apps/api
+#       secrets: inherit
+
+name: rollback
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        type: string
+        required: true
+      wrangler-env:
+        description: The wrangler --env when it differs from environment. "-" means the top level of the config.
+        type: string
+        default: ''
+      version-id:
+        description: The version to put back. Empty means the one before the current deployment.
+        type: string
+        default: ''
+      reason:
+        type: string
+        default: ''
+      code:
+        description: Roll the Worker's code back. False restores the data only.
+        type: boolean
+        default: true
+      d1-database:
+        description: The D1 binding to restore. Empty leaves the data alone.
+        type: string
+        default: ''
+      d1-bookmark:
+        description: The bookmark to restore D1 to, from the deploy run's summary. Takes precedence over d1-timestamp.
+        type: string
+        default: ''
+      d1-timestamp:
+        description: Or a moment to restore D1 to, RFC3339 or Unix seconds, within Time Travel's window (7 days Free, 30 Paid).
+        type: string
+        default: ''
+      working-directory:
+        type: string
+        default: .
+      workspace-directory:
+        type: string
+        default: .
+      runs-on:
+        type: string
+        default: '"ubuntu-latest"'
+    secrets:
+      CLOUDFLARE_API_TOKEN:
+        required: false
+      CLOUDFLARE_ACCOUNT_ID:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  rollback:
+    name: Roll back ${{ inputs.working-directory }} on ${{ inputs.environment }}
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    timeout-minutes: 10
+    environment: ${{ inputs.environment }}
+    concurrency:
+      group: deploy-${{ github.repository }}-${{ inputs.environment }}-${{ inputs.working-directory }}
+      cancel-in-progress: false
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      WRANGLER_SEND_METRICS: 'false'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: buun-group/actions/setup@v1
+        with:
+          working-directory: ${{ inputs.workspace-directory }}
+          rebuild: esbuild workerd
+
+      - name: Refuse a data restore with no point to restore to
+        if: inputs.d1-database != '' && inputs.d1-bookmark == '' && inputs.d1-timestamp == ''
+        run: |
+          echo "::error::d1-database is set but neither d1-bookmark nor d1-timestamp is: nothing to restore to."
+          exit 1
+
+      - name: Roll back the code
+        if: inputs.code
+        working-directory: ${{ inputs.working-directory }}
+        env:
+          ENVIRONMENT: ${{ inputs.environment }}
+          WRANGLER_ENV: ${{ inputs.wrangler-env }}
+          VERSION_ID: ${{ inputs.version-id }}
+          REASON: ${{ inputs.reason }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+          case "$WRANGLER_ENV" in
+            -) env_args=() ;;
+            '') env_args=(--env "$ENVIRONMENT") ;;
+            *) env_args=(--env "$WRANGLER_ENV") ;;
+          esac
+          version_args=()
+          if [ -n "$VERSION_ID" ]; then version_args=("$VERSION_ID"); fi
+          message="rollback by $ACTOR${REASON:+: $REASON}"
+          pnpm exec wrangler rollback "${version_args[@]}" "${env_args[@]}" --message "${message:0:100}" --yes
+          echo "Rolled back ${ENVIRONMENT} to ${VERSION_ID:-the previous version}: ${message}" >> "$GITHUB_STEP_SUMMARY"
+
+      # After the code, never before: see the header. --json restores without a prompt and answers the bookmark the
+      # database was at just before, which undoes this restore.
+      - name: Restore D1 data and schema
+        if: inputs.d1-database != ''
+        working-directory: ${{ inputs.working-directory }}
+        env:
+          ENVIRONMENT: ${{ inputs.environment }}
+          WRANGLER_ENV: ${{ inputs.wrangler-env }}
+          DATABASE: ${{ inputs.d1-database }}
+          BOOKMARK: ${{ inputs.d1-bookmark }}
+          TIMESTAMP: ${{ inputs.d1-timestamp }}
+        run: |
+          set -euo pipefail
+          case "$WRANGLER_ENV" in
+            -) env_args=() ;;
+            '') env_args=(--env "$ENVIRONMENT") ;;
+            *) env_args=(--env "$WRANGLER_ENV") ;;
+          esac
+          if [ -n "$BOOKMARK" ]; then point=(--bookmark "$BOOKMARK"); else point=(--timestamp "$TIMESTAMP"); fi
+          result="$(pnpm exec wrangler d1 time-travel restore "$DATABASE" "${point[@]}" "${env_args[@]}" --json)"
+          echo "$result"
+          undo="$(node -e 'const t=process.argv[1]; const s=t.indexOf("{"); const r=s<0?{}:JSON.parse(t.slice(s)); process.stdout.write(r.previous_bookmark ?? "")' "$result")"
+          {
+            echo "### D1 \`$DATABASE\` restored to ${BOOKMARK:-$TIMESTAMP}"
+            echo "Every row written after that point is gone from the database."
+            if [ -n "$undo" ]; then echo "To undo this restore, run this workflow again with \`d1-bookmark: $undo\` and \`code: false\`."; fi
+          } >> "$GITHUB_STEP_SUMMARY"

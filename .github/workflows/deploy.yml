@@ -1,0 +1,174 @@
+# Reusable: deploy one Worker to one environment.
+#
+#   step        what it does
+#   setup       installs the workspace from its lockfile
+#   build       runs build-command, when the Worker serves a built site
+#   migrate     takes a D1 Time Travel bookmark, then applies pending migrations, before any code that needs them is live
+#   deploy      versions upload, smoke test on the version's own address, then traffic in the rollout's stages
+#
+# The job names the GitHub environment, so its secrets (CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID) are that
+# environment's own and its protection rules (required reviewers, allowed branches) apply before anything runs.
+# One deploy per Worker and environment at a time, never cancelled half way.
+#
+#   jobs:
+#     production:
+#       uses: buun-group/actions/.github/workflows/deploy.yml@v1
+#       with:
+#         environment: production
+#         working-directory: apps/api
+#         d1-database: DB
+#         smoke-path: /health
+#         url: https://api.example.com
+#       secrets: inherit
+
+name: deploy
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: The GitHub environment, and the wrangler --env unless wrangler-env says otherwise.
+        type: string
+        required: true
+      wrangler-env:
+        description: The wrangler --env when it differs from environment. "-" means the top level of the config.
+        type: string
+        default: ''
+      working-directory:
+        description: The Worker's folder.
+        type: string
+        default: .
+      workspace-directory:
+        description: Where the lockfile lives.
+        type: string
+        default: .
+      runs-on:
+        type: string
+        default: '"ubuntu-latest"'
+      node-version:
+        type: string
+        default: ''
+      rebuild:
+        type: string
+        default: esbuild workerd
+      build-command:
+        description: Run in the Worker's folder before the upload. Empty when wrangler bundles it alone.
+        type: string
+        default: ''
+      d1-database:
+        description: The D1 binding to migrate first. Empty skips migrations.
+        type: string
+        default: ''
+      rollout:
+        type: string
+        default: '100'
+      hold-minutes:
+        type: string
+        default: '15'
+      smoke-path:
+        type: string
+        default: ''
+      url:
+        description: The address that takes traffic. Shown on the run and smoke tested after each stage.
+        type: string
+        default: ''
+      upload-only:
+        type: boolean
+        default: false
+      timeout-minutes:
+        type: number
+        default: 30
+    secrets:
+      CLOUDFLARE_API_TOKEN:
+        required: false
+      CLOUDFLARE_ACCOUNT_ID:
+        required: false
+    outputs:
+      version-id:
+        value: ${{ jobs.deploy.outputs.version-id }}
+      preview-url:
+        value: ${{ jobs.deploy.outputs.preview-url }}
+      d1-bookmark:
+        description: The D1 Time Travel bookmark from just before this deploy's migrations; empty when none ran.
+        value: ${{ jobs.deploy.outputs.d1-bookmark }}
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy ${{ inputs.working-directory }} to ${{ inputs.environment }}
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    environment:
+      name: ${{ inputs.environment }}
+      url: ${{ inputs.url || steps.deploy.outputs.preview-url }}
+    concurrency:
+      group: deploy-${{ github.repository }}-${{ inputs.environment }}-${{ inputs.working-directory }}
+      cancel-in-progress: false
+    outputs:
+      version-id: ${{ steps.deploy.outputs.version-id }}
+      preview-url: ${{ steps.deploy.outputs.preview-url }}
+      d1-bookmark: ${{ steps.migrate.outputs.bookmark }}
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      WRANGLER_SEND_METRICS: 'false'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Refuse to run without a Cloudflare token
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::error::Set CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID on the $ENVIRONMENT environment, one token per environment."
+            exit 1
+          fi
+        env:
+          ENVIRONMENT: ${{ inputs.environment }}
+
+      - name: Name the wrangler environment
+        id: env
+        env:
+          ENVIRONMENT: ${{ inputs.environment }}
+          WRANGLER_ENV: ${{ inputs.wrangler-env }}
+        run: |
+          case "$WRANGLER_ENV" in
+            -) echo "name=" >> "$GITHUB_OUTPUT" ;;
+            '') echo "name=$ENVIRONMENT" >> "$GITHUB_OUTPUT" ;;
+            *) echo "name=$WRANGLER_ENV" >> "$GITHUB_OUTPUT" ;;
+          esac
+
+      - uses: buun-group/actions/setup@v1
+        with:
+          working-directory: ${{ inputs.workspace-directory }}
+          node-version: ${{ inputs.node-version }}
+          rebuild: ${{ inputs.rebuild }}
+
+      - name: Build
+        if: inputs.build-command != ''
+        working-directory: ${{ inputs.working-directory }}
+        env:
+          COMMAND: ${{ inputs.build-command }}
+          CLOUDFLARE_ENV: ${{ steps.env.outputs.name }}
+        run: bash -euo pipefail -c "$COMMAND"
+
+      - id: migrate
+        if: inputs.d1-database != ''
+        uses: buun-group/actions/d1-migrate@v1
+        with:
+          database: ${{ inputs.d1-database }}
+          working-directory: ${{ inputs.working-directory }}
+          environment: ${{ steps.env.outputs.name }}
+
+      - id: deploy
+        uses: buun-group/actions/wrangler-deploy@v1
+        with:
+          working-directory: ${{ inputs.working-directory }}
+          environment: ${{ steps.env.outputs.name }}
+          rollout: ${{ inputs.rollout }}
+          hold-minutes: ${{ inputs.hold-minutes }}
+          smoke-path: ${{ inputs.smoke-path }}
+          url: ${{ inputs.url }}
+          upload-only: ${{ inputs.upload-only }}

@@ -1,0 +1,42 @@
+# Puts a Worker back on an earlier version, from the Actions tab. Copy to .github/workflows/rollback.yml.
+
+name: rollback
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        type: choice
+        options: [production, preview]
+      version-id:
+        description: The version to put back. Empty means the one before the current deployment.
+        type: string
+        default: ''
+      reason:
+        type: string
+        default: ''
+      code:
+        description: Roll the code back. Off restores the data only.
+        type: boolean
+        default: true
+      d1-bookmark:
+        description: Restore D1 (data and schema) to this bookmark, from the deploy's summary. Writes since are lost. Empty leaves data alone.
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  api:
+    uses: buun-group/actions/.github/workflows/rollback.yml@v1
+    with:
+      environment: ${{ inputs.environment }}
+      version-id: ${{ inputs.version-id }}
+      reason: ${{ inputs.reason }}
+      code: ${{ inputs.code }}
+      d1-database: ${{ inputs.d1-bookmark != '' && 'DB' || '' }}
+      d1-bookmark: ${{ inputs.d1-bookmark }}
+      working-directory: apps/api
+      runs-on: ${{ vars.CI_RUNS_ON || '"ubuntu-latest"' }}
+    secrets: inherit

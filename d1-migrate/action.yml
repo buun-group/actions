@@ -1,0 +1,73 @@
+name: Buun D1 migrate
+description: Take a D1 Time Travel bookmark, then apply the Worker's pending migrations to the remote database, as a step of its own before the deploy. The bookmark restores the data and the schema to the moment before. Needs the workspace installed (setup) and CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID in the environment.
+
+inputs:
+  database:
+    description: The D1 binding or database name, as wrangler d1 migrations apply takes it.
+    required: true
+  working-directory:
+    description: The Worker's folder, where its wrangler config lives.
+    default: .
+  environment:
+    description: The wrangler environment (--env). Empty uses the top level of the config.
+    default: ''
+  wrangler:
+    description: How to run wrangler, from the working directory.
+    default: pnpm exec wrangler
+
+outputs:
+  bookmark:
+    description: The Time Travel bookmark from just before the migrations. Empty when there was nothing to apply.
+    value: ${{ steps.migrate.outputs.bookmark }}
+  applied:
+    description: "'true' when at least one migration was applied."
+    value: ${{ steps.migrate.outputs.applied }}
+
+runs:
+  using: composite
+  steps:
+    # Separate from the deploy (packs/cloudflare/deployments, section 6): a failed migration stops the run before any
+    # code that needs it is live. The bookmark is taken only when there is something to apply, so a deploy with no
+    # migration leaves no restore point that would throw away later writes.
+    - name: Bookmark, then apply pending D1 migrations
+      id: migrate
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        DATABASE: ${{ inputs.database }}
+        WRANGLER_ENV: ${{ inputs.environment }}
+        WRANGLER: ${{ inputs.wrangler }}
+        CI: 'true'
+      run: |
+        set -euo pipefail
+        env_args=()
+        if [ -n "$WRANGLER_ENV" ]; then env_args=(--env "$WRANGLER_ENV"); fi
+        # shellcheck disable=SC2086
+        pending="$($WRANGLER d1 migrations list "$DATABASE" --remote "${env_args[@]}")"
+        echo "$pending"
+        if grep -q "No migrations to apply" <<<"$pending"; then
+          echo "applied=false" >> "$GITHUB_OUTPUT"
+          echo "bookmark=" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        # shellcheck disable=SC2086
+        bookmark="$($WRANGLER d1 time-travel info "$DATABASE" "${env_args[@]}" --json | node -e '
+          let text = ""; process.stdin.on("data", (c) => (text += c)).on("end", () => {
+            const start = text.indexOf("{")
+            const found = start < 0 ? undefined : JSON.parse(text.slice(start)).bookmark
+            if (typeof found !== "string" || found === "") { console.error("wrangler gave no bookmark: " + text); process.exit(1) }
+            process.stdout.write(found)
+          })')"
+        echo "bookmark=$bookmark" >> "$GITHUB_OUTPUT"
+        {
+          echo "### D1 \`$DATABASE\` ${WRANGLER_ENV:+($WRANGLER_ENV)}"
+          echo "Bookmark before the migrations: \`$bookmark\`"
+          echo "Restore data and schema to it with the rollback workflow's \`d1-bookmark\`, or"
+          echo "\`wrangler d1 time-travel restore $DATABASE ${WRANGLER_ENV:+--env $WRANGLER_ENV }--bookmark=$bookmark\`."
+          echo "Time Travel keeps 7 days on Workers Free, 30 on Paid."
+        } >> "$GITHUB_STEP_SUMMARY"
+
+        # shellcheck disable=SC2086
+        $WRANGLER d1 migrations apply "$DATABASE" --remote "${env_args[@]}"
+        echo "applied=true" >> "$GITHUB_OUTPUT"

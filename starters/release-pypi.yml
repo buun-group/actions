@@ -1,0 +1,49 @@
+# Publishes a Python package to PyPI. Copy to .github/workflows/release-pypi.yml, keeping that file name: the PyPI
+# project's trusted publisher names this repository, release-pypi.yml and the environment pypi.
+#
+# Two jobs, so the OIDC token exists only where it is spent: build (anywhere, no token) and publish (GitHub's runners,
+# id-token). PyPI refuses trusted publishing from a reusable workflow, which is why the publish job lives here and
+# calls an action rather than a workflow.
+
+name: release pypi
+
+on:
+  push:
+    tags: ['python-v*']
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: release-pypi
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ${{ fromJSON(vars.CI_RUNS_ON || '"ubuntu-latest"') }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      exists: ${{ steps.build.outputs.exists }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: build
+        uses: buun-group/actions/python-build@v1
+        with:
+          package-directory: packages/sdk-python
+          test-command: uv run pytest
+
+  publish:
+    needs: build
+    if: needs.build.outputs.exists == 'false'
+    # hosted: trusted publishing works only on GitHub's runners.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: buun-group/actions/pypi-publish@v1

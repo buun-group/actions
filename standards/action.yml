@@ -1,0 +1,77 @@
+name: Buun standards gates
+description: Fetch the .standards submodule at the commit this repository pins, with a read-only GitHub App token, and run its gates. Does nothing in a repository without .standards.
+
+inputs:
+  app-client-id:
+    description: Client id of the GitHub App installed on the standards repository (vars.STANDARDS_APP_CLIENT_ID).
+    required: true
+  app-private-key:
+    description: That app's private key (secrets.STANDARDS_APP_PRIVATE_KEY).
+    required: true
+  repository:
+    description: The standards repository, owner/name (vars.STANDARDS_REPOSITORY).
+    required: true
+  semgrep:
+    description: "'true' installs semgrep for the optional AST gate."
+    default: 'true'
+
+outputs:
+  ran:
+    description: "'true' when the gates ran."
+    value: ${{ steps.pin.outputs.sha != '' }}
+
+runs:
+  using: composite
+  steps:
+    - name: Find the standards commit this repository pins
+      id: pin
+      shell: bash
+      run: |
+        set -euo pipefail
+        sha="$(git ls-tree HEAD .standards | awk '$2 == "commit" {print $3}')"
+        if [ -z "$sha" ]; then echo "No .standards submodule here, so there is nothing to check."; fi
+        echo "sha=$sha" >> "$GITHUB_OUTPUT"
+        echo "owner=${STANDARDS_REPO%%/*}" >> "$GITHUB_OUTPUT"
+        echo "name=${STANDARDS_REPO#*/}" >> "$GITHUB_OUTPUT"
+      env:
+        STANDARDS_REPO: ${{ inputs.repository }}
+
+    # The standards repository may be private or in another organisation, so the job's own token cannot read it. A GitHub App installed there mints a token that can read that one repository and nothing else.
+    - name: Mint a read-only token for the standards repository
+      id: token
+      if: steps.pin.outputs.sha != ''
+      uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+      with:
+        client-id: ${{ inputs.app-client-id }}
+        private-key: ${{ inputs.app-private-key }}
+        owner: ${{ steps.pin.outputs.owner }}
+        repositories: ${{ steps.pin.outputs.name }}
+        permission-contents: read
+
+    - name: Check out the standards at the pinned commit
+      if: steps.pin.outputs.sha != ''
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        repository: ${{ inputs.repository }}
+        ref: ${{ steps.pin.outputs.sha }}
+        path: .standards
+        token: ${{ steps.token.outputs.token }}
+        persist-credentials: false
+
+    # A self-hosted runner keeps what an earlier run installed, so only what is missing is installed.
+    - name: Install semgrep for the AST gate
+      if: steps.pin.outputs.sha != '' && inputs.semgrep == 'true'
+      shell: bash
+      continue-on-error: true
+      run: |
+        if command -v semgrep >/dev/null; then semgrep --version
+        elif command -v pipx >/dev/null; then pipx install semgrep || pipx upgrade semgrep
+        else python3 -m pip install --user semgrep
+        fi
+
+    - name: Run the standards gates
+      if: steps.pin.outputs.sha != ''
+      shell: bash
+      env:
+        STANDARDS_CI: 'true'
+      run: python3 .standards/claude/enforcement/ci.py < /dev/null

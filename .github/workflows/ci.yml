@@ -1,0 +1,215 @@
+# Reusable: every check a product runs, in one job, doing only what the changed files need.
+#
+#   step        what it does                                                     skipped when
+#   changes     names the areas the changed files touch; a shared file runs all  never
+#   guard       no commit credits an AI tool                                     guard: false
+#   standards   the .standards gates at the pinned commit                        no app id given
+#   setup       pnpm, Node, install from the lockfile                            only ignored files changed
+#   tasks       each "area: command" line whose area changed                     its area did not change
+#   audit       no high or critical advisory in a production dependency          not a full run (audit: auto)
+#
+# Selection has two levels, and the caller decides both through inputs, nothing is fixed here:
+#   which tasks:   `filters` names areas by glob, `tasks` gives each area its commands
+#   inside a task: the commands read CI_* variables to narrow themselves to what changed:
+#     CI_FULL               true or false
+#     CI_BASE               the commit compared with (empty on a full run)
+#     CI_TURBO_AFFECTED     "--affected" on a selective run, else empty:   turbo run test $CI_TURBO_AFFECTED
+#     CI_PNPM_FILTER        "--filter=...[<base>]" on a selective run:     pnpm -r $CI_PNPM_FILTER test
+#     CI_VITEST_CHANGED     "--changed=<base>" on a selective run:         vitest run $CI_VITEST_CHANGED
+#     CI_CHANGED_FILES      a file listing the changed files
+#     TURBO_SCM_BASE        the base, which turbo --affected reads
+#
+# A full run happens on a manual run, on a schedule, when a file in `full-run` changed (the lockfile, a root config, a
+# workflow) and when scope is full. Callers pass scope: full on main before a deploy, so what selection skipped on a
+# pull request is always run before it ships.
+
+name: ci
+
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        description: The runner, as JSON. '"ubuntu-latest"' or '["self-hosted","buun"]'.
+        type: string
+        default: '"ubuntu-latest"'
+      working-directory:
+        type: string
+        default: .
+      node-version:
+        description: Empty reads .nvmrc.
+        type: string
+        default: ''
+      rebuild:
+        description: Packages whose install script must run, such as "esbuild workerd".
+        type: string
+        default: ''
+      workspace:
+        description: auto makes an area of every pnpm workspace package (true when it or a package it uses changed); pnpm forces it; empty turns it off.
+        type: string
+        default: auto
+      filters:
+        description: 'Extra areas, one per line: "name: glob glob !glob", for what is not a package (migrations, a docs folder). See the changes action.'
+        type: string
+        default: ''
+      tasks:
+        description: 'Commands, one per line: "area: command", "*: command" always. Empty runs check-command and dry-run-command.'
+        type: string
+        default: ''
+      full-run:
+        description: Globs that force a full run. Empty keeps the changes action's default (lockfile, root configs, workflows).
+        type: string
+        default: ''
+      ignore:
+        description: Globs set aside; a run that changed only these checks nothing. Empty keeps the default (Markdown, docs/, .changeset/).
+        type: string
+        default: ''
+      scope:
+        description: auto selects by the changes; full runs everything.
+        type: string
+        default: auto
+      base:
+        description: What to compare with. Empty is the pull request's base or the push's previous commit; last-success is this workflow's last green run on the branch (needs actions read), so main re-checks everything since the last good deploy.
+        type: string
+        default: ''
+      check-command:
+        description: 'Used when tasks is empty, as "*: <command>".'
+        type: string
+        default: pnpm check
+      dry-run-command:
+        description: 'Used when tasks is empty, as "*: <command>". Empty adds nothing.'
+        type: string
+        default: ''
+      audit:
+        description: auto audits on a full run (which a lockfile change causes); always; never.
+        type: string
+        default: auto
+      guard:
+        type: boolean
+        default: true
+      standards-repository:
+        description: The standards repository, owner/name (vars.STANDARDS_REPOSITORY). Empty skips the standards gates.
+        type: string
+        default: ''
+      standards-app-client-id:
+        description: vars.STANDARDS_APP_CLIENT_ID. Empty skips the standards gates.
+        type: string
+        default: ''
+      timeout-minutes:
+        type: number
+        default: 20
+    secrets:
+      STANDARDS_APP_PRIVATE_KEY:
+        required: false
+    outputs:
+      areas:
+        value: ${{ jobs.check.outputs.areas }}
+      full:
+        value: ${{ jobs.check.outputs.full }}
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  check:
+    name: Check
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    outputs:
+      areas: ${{ steps.changes.outputs.areas }}
+      full: ${{ steps.changes.outputs.full }}
+    env:
+      VITEST_MAX_WORKERS: ${{ vars.VITEST_MAX_WORKERS || '' }}
+    steps:
+      # History without file contents: the guard reads commit messages and changes diffs trees, neither needs blobs.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          filter: blob:none
+          persist-credentials: false
+
+      # pnpm and Node first, without installing: changes asks pnpm which workspace packages changed.
+      - uses: buun-group/actions/setup@v1
+        with:
+          working-directory: ${{ inputs.working-directory }}
+          node-version: ${{ inputs.node-version }}
+          install: 'false'
+
+      - id: changes
+        uses: buun-group/actions/changes@v1
+        with:
+          workspace: ${{ inputs.workspace }}
+          filters: ${{ inputs.filters }}
+          full-run: ${{ inputs.full-run }}
+          ignore: ${{ inputs.ignore }}
+          scope: ${{ inputs.scope }}
+          base: ${{ inputs.base }}
+
+      - if: inputs.guard
+        uses: buun-group/actions/guard@v1
+
+      - if: inputs.standards-app-client-id != '' && inputs.standards-repository != ''
+        uses: buun-group/actions/standards@v1
+        with:
+          repository: ${{ inputs.standards-repository }}
+          app-client-id: ${{ inputs.standards-app-client-id }}
+          app-private-key: ${{ secrets.STANDARDS_APP_PRIVATE_KEY }}
+
+      - if: steps.changes.outputs.none != 'true'
+        uses: buun-group/actions/setup@v1
+        with:
+          working-directory: ${{ inputs.working-directory }}
+          install: only
+          rebuild: ${{ inputs.rebuild }}
+
+      - name: Name what the tasks run against
+        id: narrow
+        if: steps.changes.outputs.none != 'true'
+        env:
+          FULL: ${{ steps.changes.outputs.full }}
+          BASE: ${{ steps.changes.outputs.base }}
+          TASKS: ${{ inputs.tasks }}
+          CHECK: ${{ inputs.check-command }}
+          DRY_RUN: ${{ inputs.dry-run-command }}
+        run: |
+          set -euo pipefail
+          {
+            echo "CI_FULL=$FULL"
+            echo "CI_BASE=$BASE"
+            if [ "$FULL" = true ]; then
+              echo "CI_TURBO_AFFECTED="; echo "CI_PNPM_FILTER="; echo "CI_VITEST_CHANGED="
+            else
+              echo "CI_TURBO_AFFECTED=--affected"; echo "CI_PNPM_FILTER=--filter=...[$BASE]"; echo "CI_VITEST_CHANGED=--changed=$BASE"
+              echo "TURBO_SCM_BASE=$BASE"
+            fi
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo 'tasks<<TASKS_END'
+            if [ -n "$TASKS" ]; then printf '%s\n' "$TASKS"
+            else
+              printf '*: %s\n' "$CHECK"
+              if [ -n "$DRY_RUN" ]; then printf '*: %s\n' "$DRY_RUN"; fi
+            fi
+            echo 'TASKS_END'
+          } >> "$GITHUB_OUTPUT"
+
+      - if: steps.changes.outputs.none != 'true'
+        uses: buun-group/actions/tasks@v1
+        env:
+          CI_FULL: ${{ steps.narrow.outputs.CI_FULL }}
+          CI_BASE: ${{ steps.narrow.outputs.CI_BASE }}
+          CI_TURBO_AFFECTED: ${{ steps.narrow.outputs.CI_TURBO_AFFECTED }}
+          CI_PNPM_FILTER: ${{ steps.narrow.outputs.CI_PNPM_FILTER }}
+          CI_VITEST_CHANGED: ${{ steps.narrow.outputs.CI_VITEST_CHANGED }}
+          TURBO_SCM_BASE: ${{ steps.narrow.outputs.TURBO_SCM_BASE }}
+          CI_CHANGED_FILES: ${{ steps.changes.outputs.files }}
+        with:
+          tasks: ${{ steps.narrow.outputs.tasks }}
+          areas: ${{ steps.changes.outputs.areas }}
+          full: ${{ steps.changes.outputs.full }}
+          working-directory: ${{ inputs.working-directory }}
+
+      - name: Audit production dependencies
+        if: steps.changes.outputs.none != 'true' && (inputs.audit == 'always' || (inputs.audit == 'auto' && steps.changes.outputs.full == 'true'))
+        working-directory: ${{ inputs.working-directory }}
+        run: pnpm audit --prod --audit-level=high

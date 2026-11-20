@@ -1,0 +1,110 @@
+# Reusable: test, build and publish one npm package with trusted publishing (OIDC). No npm token is stored anywhere.
+#
+# Runs on GitHub's own runners, always: npm does not accept trusted publishing from a self-hosted runner. A public
+# repository's runs are free; a private one's spend its organisation's minutes, about two a release. Provenance is
+# recorded when the source repository is public (npm refuses it from a private one).
+#
+# npm checks the CALLING workflow, so on npmjs.com the package's trusted publisher names the product repository and
+# its own workflow file (release.yml in the starter), not this file. If npm ever refuses that, put the publish in a
+# job of the product's own workflow with the npm-publish action, which is what this workflow runs.
+#
+#   jobs:
+#     sdk:
+#       uses: buun-group/actions/.github/workflows/release-npm.yml@v1
+#       with:
+#         package-directory: packages/sdk
+#       permissions:
+#         contents: read
+#         id-token: write
+
+name: release npm
+
+on:
+  workflow_call:
+    inputs:
+      package-directory:
+        description: The package's folder.
+        type: string
+        required: true
+      workspace-directory:
+        description: Where the lockfile lives.
+        type: string
+        default: .
+      node-version:
+        description: Trusted publishing needs Node 22.14 or later and npm 11.5.1 or later.
+        type: string
+        default: '24'
+      build-command:
+        description: Run in the package's folder before publishing. Empty leaves it to the package's prepublishOnly.
+        type: string
+        default: ''
+      test-command:
+        description: Run in the package's folder before publishing. Empty skips it.
+        type: string
+        default: ''
+      dist-tag:
+        type: string
+        default: latest
+      publisher:
+        description: "npm, or pnpm for a package whose dependencies use the workspace: protocol."
+        type: string
+        default: npm
+      environment:
+        description: The GitHub environment the trusted publisher names, if any.
+        type: string
+        default: release
+    outputs:
+      published:
+        value: ${{ jobs.publish.outputs.published }}
+      version:
+        value: ${{ jobs.publish.outputs.version }}
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    name: Publish ${{ inputs.package-directory }}
+    # hosted: npm trusted publishing works only on GitHub's runners.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: ${{ inputs.environment }}
+    concurrency:
+      group: release-npm-${{ github.repository }}-${{ inputs.package-directory }}
+      cancel-in-progress: false
+    outputs:
+      published: ${{ steps.publish.outputs.published }}
+      version: ${{ steps.publish.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          filter: blob:none
+          persist-credentials: false
+
+      # No registry-url: it writes an .npmrc with a placeholder token, and npm must find none, so it uses OIDC.
+      - uses: buun-group/actions/setup@v1
+        with:
+          working-directory: ${{ inputs.workspace-directory }}
+          node-version: ${{ inputs.node-version }}
+
+      - name: Test
+        if: inputs.test-command != ''
+        working-directory: ${{ inputs.package-directory }}
+        env:
+          COMMAND: ${{ inputs.test-command }}
+        run: bash -euo pipefail -c "$COMMAND"
+
+      - name: Build
+        if: inputs.build-command != ''
+        working-directory: ${{ inputs.package-directory }}
+        env:
+          COMMAND: ${{ inputs.build-command }}
+        run: bash -euo pipefail -c "$COMMAND"
+
+      - id: publish
+        uses: buun-group/actions/npm-publish@v1
+        with:
+          package-directory: ${{ inputs.package-directory }}
+          dist-tag: ${{ inputs.dist-tag }}
+          publisher: ${{ inputs.publisher }}

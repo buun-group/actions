@@ -1,0 +1,86 @@
+name: Buun MCP registry publish
+description: Validate server.json and publish it to the MCP registry, skipping a version already listed. github-oidc needs no secret (names under io.github.<owner>/); a domain name (com.example/) proves the domain with dns or http and its private key.
+
+inputs:
+  server-json:
+    description: Path to server.json.
+    default: server.json
+  login:
+    description: github-oidc, dns or http.
+    default: github-oidc
+  domain:
+    description: For dns and http, the domain the name is under.
+    default: ''
+  private-key:
+    description: For dns and http, the key whose public half the domain publishes.
+    default: ''
+  registry:
+    default: https://registry.modelcontextprotocol.io
+  publisher-version:
+    default: 1.8.10
+  publisher-sha256:
+    description: SHA-256 of mcp-publisher_linux_amd64.tar.gz at publisher-version.
+    default: 32d287ed6fb7dc04eddd2621097784c06a355b2348b35ccc630a1643aa75ff4a
+
+outputs:
+  published:
+    value: ${{ steps.publish.outputs.published || 'false' }}
+
+runs:
+  using: composite
+  steps:
+    - name: Decide whether this version is listed
+      id: plan
+      shell: bash
+      env:
+        SERVER_JSON: ${{ inputs.server-json }}
+        REGISTRY: ${{ inputs.registry }}
+      run: |
+        set -euo pipefail
+        name="$(node -p "require(require('path').resolve(process.env.SERVER_JSON)).name")"
+        version="$(node -p "require(require('path').resolve(process.env.SERVER_JSON)).version")"
+        encoded="$(NAME="$name" node -p 'encodeURIComponent(process.env.NAME)')"
+        status="$(curl -s -o /dev/null -w '%{http_code}' "$REGISTRY/v0/servers/$encoded/versions/$version")"
+        if [ "$status" = 200 ]; then
+          echo "publish=false" >> "$GITHUB_OUTPUT"
+          echo "$name $version is already listed." >> "$GITHUB_STEP_SUMMARY"
+        else
+          echo "publish=true" >> "$GITHUB_OUTPUT"
+        fi
+        echo "name=$name" >> "$GITHUB_OUTPUT"
+        echo "version=$version" >> "$GITHUB_OUTPUT"
+
+    - name: Install, log in and publish
+      id: publish
+      if: steps.plan.outputs.publish == 'true'
+      shell: bash
+      env:
+        SERVER_JSON: ${{ inputs.server-json }}
+        LOGIN: ${{ inputs.login }}
+        DOMAIN: ${{ inputs.domain }}
+        MCP_PRIVATE_KEY: ${{ inputs.private-key }}
+        VERSION: ${{ inputs.publisher-version }}
+        SHA256: ${{ inputs.publisher-sha256 }}
+        NAME: ${{ steps.plan.outputs.name }}
+        SERVER_VERSION: ${{ steps.plan.outputs.version }}
+      run: |
+        set -euo pipefail
+        dir="$RUNNER_TEMP/mcp-publisher"
+        mkdir -p "$dir"
+        archive="$dir/mcp-publisher_linux_amd64.tar.gz"
+        curl -fsSL -o "$archive" "https://github.com/modelcontextprotocol/registry/releases/download/v${VERSION}/mcp-publisher_linux_amd64.tar.gz"
+        echo "${SHA256}  ${archive}" | sha256sum --check --strict
+        tar -xzf "$archive" -C "$dir" mcp-publisher
+        cp "$SERVER_JSON" "$dir/server.json"
+        cd "$dir"
+        ./mcp-publisher validate
+        case "$LOGIN" in
+          github-oidc) ./mcp-publisher login github-oidc ;;
+          dns|http)
+            test -n "$DOMAIN" && test -n "$MCP_PRIVATE_KEY" || { echo "::error::login $LOGIN needs domain and private-key."; exit 1; }
+            ./mcp-publisher login "$LOGIN" --domain "$DOMAIN" ;;
+          *) echo "::error::login must be github-oidc, dns or http, not $LOGIN"; exit 1 ;;
+        esac
+        ./mcp-publisher publish
+        echo "published=true" >> "$GITHUB_OUTPUT"
+        echo "Listed $NAME $SERVER_VERSION on the MCP registry." >> "$GITHUB_STEP_SUMMARY"

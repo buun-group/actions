@@ -1,0 +1,40 @@
+name: Buun commit guard
+description: Fail when a commit in the push or pull request credits an AI tool, which the organisations do not allow. Needs a checkout with history (fetch-depth 0).
+
+inputs:
+  max-commits:
+    description: How many commits to read when the push has no usable "before", such as a new branch.
+    default: '50'
+  pattern:
+    description: An extended regular expression, matched without case against each line of each commit message.
+    default: '^(co-authored-by:.*(claude|anthropic|copilot|chatgpt|openai|gemini|cursor|codex|devin|aider)|claude-session:|.*generated with .*(claude|ai))'
+  message:
+    description: The error shown when a line matches.
+    default: These commits credit an AI tool, which this organisation does not allow. Remove the lines and push again.
+
+runs:
+  using: composite
+  steps:
+    - name: Refuse commits that credit an AI tool
+      shell: bash
+      env:
+        BEFORE: ${{ github.event.before }}
+        AFTER: ${{ github.sha }}
+        PR_BASE: ${{ github.event.pull_request.base.sha }}
+        PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        MAX: ${{ inputs.max-commits }}
+        PATTERN: ${{ inputs.pattern }}
+        MESSAGE: ${{ inputs.message }}
+      run: |
+        set -euo pipefail
+        zero=0000000000000000000000000000000000000000
+        if [ -n "${PR_BASE:-}" ]; then range=("$PR_BASE..$PR_HEAD")
+        elif [ -z "${BEFORE:-}" ] || [ "$BEFORE" = "$zero" ] || ! git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then range=(-n "$MAX" "$AFTER")
+        else range=("$BEFORE..$AFTER"); fi
+        found="$(git log --format='%h %s%n%b' "${range[@]}" | grep -iE "$PATTERN" || true)"
+        if [ -n "$found" ]; then
+          echo "::error::$MESSAGE"
+          echo "$found"
+          exit 1
+        fi
+        echo "No commit in ${range[*]} credits an AI tool."

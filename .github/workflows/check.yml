@@ -1,0 +1,70 @@
+# This repository's own checks. It is public, so GitHub's runners cost nothing here.
+#
+#   job       what it proves
+#   lint      every workflow and action parses and is typed right (actionlint), and none has a known Actions weakness (zizmor)
+#   test      the deploy script's logic, with Node's own test runner
+
+name: check
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: actionlint
+        env:
+          VERSION: 1.7.12
+        run: |
+          set -euo pipefail
+          curl -fsSL "https://github.com/rhysd/actionlint/releases/download/v${VERSION}/actionlint_${VERSION}_linux_amd64.tar.gz" | tar -xz actionlint
+          ./actionlint -color
+      - name: zizmor
+        run: pipx run zizmor==1.32.0 --persona regular .
+
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          filter: blob:none
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      # This repository's own actions, at this commit, choosing which of its tests to run. A workflow change is in
+      # the default full-run list, so it runs them all.
+      - id: changes
+        uses: ./changes
+        with:
+          filters: |
+            deploy: wrangler-deploy/**
+            changes: changes/**
+            tasks: tasks/**
+      - uses: ./tasks
+        with:
+          areas: ${{ steps.changes.outputs.areas }}
+          full: ${{ steps.changes.outputs.full }}
+          tasks: |
+            deploy: node --test wrangler-deploy/deploy.test.mjs
+            changes: node --test changes/changes.test.mjs
+            tasks: node --test tasks/tasks.test.mjs

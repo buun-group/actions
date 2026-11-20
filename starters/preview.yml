@@ -1,0 +1,46 @@
+# Uploads a preview version of a pull request and comments its address. Copy to .github/workflows/preview.yml.
+#
+# The version is uploaded and smoke tested on its own address, but takes no traffic, so a pull request never changes
+# what the preview environment serves. Only for pull requests from this repository: a fork has no secrets.
+
+name: preview
+
+on:
+  pull_request:
+    paths-ignore: ['**/*.md', 'docs/**', '.changeset/**']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: preview-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  api:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    uses: buun-group/actions/.github/workflows/deploy.yml@v1
+    with:
+      environment: preview
+      runs-on: ${{ vars.CI_RUNS_ON || '"ubuntu-latest"' }}
+      working-directory: apps/api
+      smoke-path: /health
+      upload-only: true
+    secrets: inherit
+
+  comment:
+    needs: api
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Comment the preview address
+        env:
+          GH_TOKEN: ${{ github.token }}
+          URL: ${{ needs.api.outputs.preview-url }}
+          VERSION: ${{ needs.api.outputs.version-id }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh pr comment "$PR" --repo "$REPO" --edit-last --create-if-none --body "Preview of \`$VERSION\`: $URL"

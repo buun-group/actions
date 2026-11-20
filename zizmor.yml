@@ -1,0 +1,14 @@
+# zizmor's settings for this repository (https://docs.zizmor.sh/configuration/).
+#
+# Every third-party action is pinned to a commit. This repository's own actions are referenced by its major tag,
+# because a reusable workflow cannot name the commit it was called at: the tag moves only when a release is cut here.
+rules:
+  # check.yml runs this repository's own actions at the commit under test with `uses: ./changes`. zizmor prefers
+  # GitHub's newer `$/changes` form, which actionlint does not parse yet; `./` is the same thing here.
+  self-repository:
+    disable: true
+  unpinned-uses:
+    config:
+      policies:
+        buun-group/actions/*: ref-pin
+        '*': hash-pin

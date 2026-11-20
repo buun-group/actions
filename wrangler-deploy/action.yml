@@ -1,0 +1,57 @@
+name: Buun Wrangler deploy
+description: Upload a Worker version, smoke test it on its preview address, then move traffic to it in stages, putting the earlier version back if a stage fails. Needs the workspace installed (setup) and CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID in the environment.
+
+inputs:
+  working-directory:
+    description: The Worker's folder, where its wrangler config lives.
+    default: .
+  environment:
+    description: The wrangler environment (--env). Empty uses the top level of the config.
+    default: ''
+  rollout:
+    description: Percentages of traffic in order, ending at 100. "10,50,100" is a canary; holding costs runner minutes, so keep it for self-hosted runners.
+    default: '100'
+  hold-minutes:
+    description: Minutes to hold at each stage before the last.
+    default: '15'
+  smoke-path:
+    description: A path that answers below 400 when the Worker is healthy, such as /health. Empty skips the smoke test.
+    default: ''
+  url:
+    description: The address that takes traffic, smoke tested after each stage. Empty tests the preview address only.
+    default: ''
+  upload-only:
+    description: "'true' uploads and smoke tests the version but sends it no traffic."
+    default: 'false'
+  wrangler:
+    description: How to run wrangler, from the working directory.
+    default: pnpm exec wrangler
+
+outputs:
+  version-id:
+    description: The version uploaded.
+    value: ${{ steps.deploy.outputs.version-id }}
+  preview-url:
+    description: That version's own address, when preview URLs are on.
+    value: ${{ steps.deploy.outputs.preview-url }}
+
+runs:
+  using: composite
+  steps:
+    - name: Upload, smoke test and roll out
+      id: deploy
+      shell: bash
+      env:
+        WORKING_DIRECTORY: ${{ inputs.working-directory }}
+        WRANGLER_ENV: ${{ inputs.environment }}
+        ROLLOUT: ${{ inputs.rollout }}
+        HOLD_MINUTES: ${{ inputs.hold-minutes }}
+        SMOKE_PATH: ${{ inputs.smoke-path }}
+        URL: ${{ inputs.url }}
+        UPLOAD_ONLY: ${{ inputs.upload-only }}
+        WRANGLER: ${{ inputs.wrangler }}
+        SHA: ${{ github.sha }}
+        PR: ${{ github.event.pull_request.number }}
+        # The subject goes in as data, never into the script: a commit message is text anyone with push can write.
+        SUBJECT: ${{ github.event.head_commit.message || github.event.pull_request.title }}
+      run: node "$GITHUB_ACTION_PATH/deploy.mjs"
