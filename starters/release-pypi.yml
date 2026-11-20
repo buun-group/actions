@@ -20,7 +20,7 @@ concurrency:
 
 jobs:
   build:
-    runs-on: ${{ fromJSON(vars.CI_RUNS_ON || '"ubuntu-latest"') }}
+    runs-on: ${{ fromJSON((github.event.repository.private == false && '"ubuntu-latest"') || vars.CI_RUNS_ON || '"ubuntu-latest"') }}
     timeout-minutes: 15
     permissions:
       contents: read

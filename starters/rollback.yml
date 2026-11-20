@@ -38,5 +38,4 @@ jobs:
       d1-database: ${{ inputs.d1-bookmark != '' && 'DB' || '' }}
       d1-bookmark: ${{ inputs.d1-bookmark }}
       working-directory: apps/api
-      runs-on: ${{ vars.CI_RUNS_ON || '"ubuntu-latest"' }}
     secrets: inherit

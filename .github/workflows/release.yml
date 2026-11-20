@@ -60,9 +60,9 @@ on:
         type: string
         default: release
       runs-on:
-        description: The plan job's runner, as JSON. The release job always runs on GitHub's.
+        description: The runner, as JSON, such as '["self-hosted","buun"]'. Empty uses the organisation's or repository's CI_RUNS_ON variable, then GitHub's runners. A public repository always uses GitHub's.
         type: string
-        default: '"ubuntu-latest"'
+        default: ''
     outputs:
       count:
         value: ${{ jobs.plan.outputs.count }}
@@ -74,7 +74,7 @@ permissions:
 
 jobs:
   plan:
-    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    runs-on: ${{ fromJSON((github.event.repository.private == false && '"ubuntu-latest"') || inputs.runs-on || vars.CI_RUNS_ON || '"ubuntu-latest"') }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -105,8 +105,9 @@ jobs:
     needs: plan
     if: needs.plan.outputs.count != '0'
     name: Release ${{ matrix.name }} ${{ matrix.version }}
-    # hosted: npm trusted publishing works only on GitHub's runners.
-    runs-on: ubuntu-latest
+    # An npm publish runs on GitHub's runners: npm accepts trusted publishing from nowhere else. A GitHub Packages
+    # publish or a tag-only release runs where the rest of CI does.
+    runs-on: ${{ fromJSON((matrix.publish && matrix.registryKind == 'npm' && '"ubuntu-latest"') || (github.event.repository.private == false && '"ubuntu-latest"') || inputs.runs-on || vars.CI_RUNS_ON || '"ubuntu-latest"') }}
     timeout-minutes: 20
     environment: ${{ inputs.environment }}
     permissions:

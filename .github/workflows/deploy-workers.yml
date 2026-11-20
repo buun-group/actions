@@ -45,8 +45,9 @@ on:
         type: string
         default: ''
       runs-on:
+        description: The runner, as JSON, such as '["self-hosted","buun"]'. Empty uses the organisation's or repository's CI_RUNS_ON variable, then GitHub's runners. A public repository always uses GitHub's.
         type: string
-        default: '"ubuntu-latest"'
+        default: ''
       rollout:
         type: string
         default: '100'
@@ -80,7 +81,7 @@ permissions:
 
 jobs:
   plan:
-    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    runs-on: ${{ fromJSON((github.event.repository.private == false && '"ubuntu-latest"') || inputs.runs-on || vars.CI_RUNS_ON || '"ubuntu-latest"') }}
     timeout-minutes: 5
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}

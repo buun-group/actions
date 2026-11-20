@@ -76,6 +76,28 @@ runs:
         echo "tag=$TAG" >> "$GITHUB_OUTPUT"
         echo "version=$version" >> "$GITHUB_OUTPUT"
 
+    # GitHub's runners have gh; a self-hosted machine may not. Fetch a pinned, checksummed copy for this job only.
+    - name: Make gh available
+      id: gh
+      shell: bash
+      env:
+        GH_VERSION: 2.105.0
+        SHA_AMD64: 79e7ab5db738c48777b696e374f8b428f0647debfb424f44d2f426370407fe2f
+        SHA_ARM64: b1278c75107423d818f1937fd92cafc9e5e9b606631568f68d7fb816f5885a02
+      run: |
+        set -euo pipefail
+        if command -v gh >/dev/null; then exit 0; fi
+        case "$(uname -m)" in
+          x86_64) arch=amd64; sha="$SHA_AMD64" ;;
+          aarch64|arm64) arch=arm64; sha="$SHA_ARM64" ;;
+          *) echo "::error::gh is not on this runner and there is no pinned build for $(uname -m); install gh."; exit 1 ;;
+        esac
+        archive="$RUNNER_TEMP/gh.tar.gz"
+        curl -fsSL -o "$archive" "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_${arch}.tar.gz"
+        echo "${sha}  ${archive}" | sha256sum --check --strict
+        tar -xzf "$archive" -C "$RUNNER_TEMP"
+        echo "dir=$RUNNER_TEMP/gh_${GH_VERSION}_linux_${arch}/bin" >> "$GITHUB_OUTPUT"
+
     - name: Tag and release
       id: release
       shell: bash
@@ -92,9 +114,11 @@ runs:
         PRERELEASE: ${{ inputs.prerelease }}
         DRAFT: ${{ inputs.draft }}
         FILES: ${{ inputs.files }}
+        GH_DIR: ${{ steps.gh.outputs.dir }}
       run: |
         set -euo pipefail
-        command -v gh >/dev/null || { echo "::error::gh is not on this runner; install the GitHub CLI or use GitHub's runners."; exit 1; }
+        if [ -n "$GH_DIR" ]; then export PATH="$GH_DIR:$PATH"; fi
+        command -v gh >/dev/null || { echo "::error::gh is not on this runner and could not be fetched."; exit 1; }
 
         if gh api "repos/$REPO/git/ref/tags/$TAG" >/dev/null 2>&1; then
           created=false

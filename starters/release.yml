@@ -26,6 +26,5 @@ jobs:
       contents: write
       packages: write
       id-token: write
-    with:
-      runs-on: ${{ vars.CI_RUNS_ON || '"ubuntu-latest"' }}
-      # include-private: true   # also tag and release private packages (an app, a CLI) without publishing
+    # with:
+    #   include-private: true   # also tag and release private packages (an app, a CLI) without publishing

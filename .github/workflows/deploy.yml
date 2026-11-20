@@ -47,8 +47,9 @@ on:
         type: string
         default: .
       runs-on:
+        description: The runner, as JSON, such as '["self-hosted","buun"]'. Empty uses the organisation's or repository's CI_RUNS_ON variable, then GitHub's runners. A public repository always uses GitHub's.
         type: string
-        default: '"ubuntu-latest"'
+        default: ''
       node-version:
         type: string
         default: ''
@@ -102,7 +103,7 @@ permissions:
 jobs:
   deploy:
     name: Deploy ${{ inputs.working-directory }} to ${{ inputs.environment }}
-    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    runs-on: ${{ fromJSON((github.event.repository.private == false && '"ubuntu-latest"') || inputs.runs-on || vars.CI_RUNS_ON || '"ubuntu-latest"') }}
     timeout-minutes: ${{ inputs.timeout-minutes }}
     environment:
       name: ${{ inputs.environment }}
@@ -123,8 +124,10 @@ jobs:
         with:
           persist-credentials: false
 
-      # Before anything else: a manual run from a feature branch must never reach production.
-      - uses: buun-group/actions/branches@v1
+      # Before anything else: a manual run from a feature branch must never reach production. An upload-only run
+      # (a pull request's preview version) sends no traffic, so it may run from any branch.
+      - if: ${{ !inputs.upload-only }}
+        uses: buun-group/actions/branches@v1
         with:
           environment: ${{ inputs.environment }}
           environment-branches: ${{ inputs.environment-branches }}

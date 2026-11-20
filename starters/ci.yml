@@ -25,8 +25,6 @@ jobs:
   ci:
     uses: buun-group/actions/.github/workflows/ci.yml@v1
     with:
-      # Set CI_RUNS_ON once on the organisation, such as ["self-hosted","buun"], and every repository runs free.
-      runs-on: ${{ vars.CI_RUNS_ON || '"ubuntu-latest"' }}
       base: ${{ github.event_name == 'push' && 'last-success' || '' }}
       # merge-rules: |                        # the default is main: dev, and dev: feat/* fix/* chore/* ...
       #   main: dev hotfix/*

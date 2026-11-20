@@ -31,7 +31,6 @@ jobs:
   ci:
     uses: buun-group/actions/.github/workflows/ci.yml@v1
     with:
-      runs-on: ${{ vars.CI_RUNS_ON || '"ubuntu-latest"' }}
       base: ${{ github.event_name == 'push' && 'last-success' || '' }}
       standards-repository: ${{ vars.STANDARDS_REPOSITORY }}
       standards-app-client-id: ${{ vars.STANDARDS_APP_CLIENT_ID }}

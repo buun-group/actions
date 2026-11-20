@@ -93,6 +93,7 @@ runs:
         while IFS= read -r path; do
           [ -n "$path" ] && excludes+=("--exclude=/${path#/}")
         done <<<"$KEEP"
+        command -v rsync >/dev/null || { echo "::error::rsync is not on this runner; install it (apt-get install rsync) on the self-hosted machine."; exit 1; }
         rsync -a --delete "${excludes[@]}" "$SOURCE/" "$MIRROR/"
         cd "$MIRROR"
         git config user.name "github-actions[bot]"

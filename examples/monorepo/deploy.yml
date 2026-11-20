@@ -30,7 +30,6 @@ jobs:
   ci:
     uses: buun-group/actions/.github/workflows/ci.yml@v1
     with:
-      runs-on: ${{ vars.CI_RUNS_ON || '"ubuntu-latest"' }}
       base: last-success
       scope: ${{ inputs.workers == 'all' && 'full' || 'auto' }}
       standards-repository: ${{ vars.STANDARDS_REPOSITORY }}
@@ -51,6 +50,5 @@ jobs:
       areas: ${{ needs.ci.outputs.areas }}
       full: ${{ needs.ci.outputs.full }}
       workers: ${{ inputs.workers }}
-      runs-on: ${{ vars.CI_RUNS_ON || '"ubuntu-latest"' }}
       # rollout: '10,50,100'   # a canary; holds cost minutes, so only on a self-hosted runner
     secrets: inherit

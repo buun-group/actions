@@ -53,7 +53,7 @@ GitHub's runners for free, so this repository's own checks cost nothing.
 | Pull requests are checked by `ci`, main by `deploy` | starters | A commit is checked once, not on push and again on pull request |
 | A newer push cancels the run it replaces | starters | Abandoned runs stop |
 | Changes only to Markdown, `docs/` or `.changeset/` run nothing | starters | Doc edits are free |
-| `runs-on` reads `CI_RUNS_ON` | every workflow | A self-hosted runner costs no minutes |
+| Every job picks its runner: the organisation's `CI_RUNS_ON`, GitHub's for public repositories and npm publishes | every workflow | One variable per organisation moves every repository onto self-hosted runners, which cost no minutes |
 | Guard and standards run before the install | `ci.yml` | A run they fail costs seconds |
 | Large repositories are cloned without old file contents (`filter: blob:none`) | `ci.yml`, `release.yml` | Checkout time |
 | A canary's hold time is opt in | `deploy.yml` | A 10, 50, 100 rollout holds 30 minutes; keep it for self-hosted runners |
