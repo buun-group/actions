@@ -11,8 +11,8 @@ inputs:
   dist-tag:
     default: latest
   publisher:
-    description: "npm, or pnpm for a package whose dependencies use the workspace: protocol."
-    default: npm
+    description: "auto (pnpm when the repository has pnpm-lock.yaml, which also applies publishConfig overrides and the workspace: protocol), npm or pnpm."
+    default: auto
   github-token:
     description: For registry github only.
     default: ''
@@ -99,6 +99,9 @@ runs:
           else
             args+=(--provenance)
           fi
+        fi
+        if [ "$PUBLISHER" = auto ]; then
+          if [ -f "$GITHUB_WORKSPACE/pnpm-lock.yaml" ]; then PUBLISHER=pnpm; else PUBLISHER=npm; fi
         fi
         case "$PUBLISHER" in
           npm) npm publish "${args[@]}" ;;

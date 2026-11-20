@@ -1,0 +1,38 @@
+name: Buun Workers plan
+description: Find every Cloudflare Worker in the repository from its wrangler config, and what deploying it to an environment takes (D1 binding, address, build), with nothing configured per Worker. Chooses the ones whose area changed. Used by deploy-workers; usable alone for a matrix.
+
+inputs:
+  environment:
+    description: The wrangler environment the plan is for.
+    required: true
+  areas:
+    description: The changes action's areas. Empty deploys every Worker.
+    default: ''
+  full:
+    description: The changes action's full output; true deploys every Worker.
+    default: 'false'
+  only:
+    description: Worker names or folders to deploy, space separated, changed or not. Empty or "all" goes by the areas.
+    default: ''
+  working-directory:
+    default: .
+
+outputs:
+  matrix:
+    description: '{"include": [{"name", "dir", "wrangler-env", "d1-database", "url", "smoke-path", "build-command"}]}'
+    value: ${{ steps.plan.outputs.matrix }}
+  count:
+    value: ${{ steps.plan.outputs.count }}
+
+runs:
+  using: composite
+  steps:
+    - id: plan
+      shell: bash
+      env:
+        ENVIRONMENT: ${{ inputs.environment }}
+        AREAS: ${{ inputs.areas }}
+        FULL: ${{ inputs.full }}
+        ONLY: ${{ inputs.only }}
+        WORKING_DIRECTORY: ${{ inputs.working-directory }}
+      run: node "$GITHUB_ACTION_PATH/plan.mjs"

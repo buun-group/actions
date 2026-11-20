@@ -1,0 +1,38 @@
+name: Buun release plan
+description: List what a repository can release and which versions are not released yet, with nothing configured per package. Every publishable package.json (the root, or each pnpm workspace package) whose tag is missing. Used by the release workflow; usable alone for a matrix.
+
+inputs:
+  tag-format:
+    description: "{name} (the name past its scope) and {version}. Empty: v{version} for one package, {name}-v{version} for a workspace."
+    default: ''
+  include-private:
+    description: "'true' also tags and releases private packages (an app, a CLI), without publishing them."
+    default: 'false'
+  only:
+    description: Package names or folders to consider, space separated. Empty considers all.
+    default: ''
+  working-directory:
+    default: .
+  token:
+    description: Reads the repository's tags.
+    default: ${{ github.token }}
+
+outputs:
+  matrix:
+    description: '{"include": [{"name", "version", "dir", "tag", "publish", "registryKind", "private"}]} for strategy.matrix.'
+    value: ${{ steps.plan.outputs.matrix }}
+  count:
+    value: ${{ steps.plan.outputs.count }}
+
+runs:
+  using: composite
+  steps:
+    - id: plan
+      shell: bash
+      env:
+        TAG_FORMAT: ${{ inputs.tag-format }}
+        INCLUDE_PRIVATE: ${{ inputs.include-private }}
+        ONLY: ${{ inputs.only }}
+        WORKING_DIRECTORY: ${{ inputs.working-directory }}
+        TOKEN: ${{ inputs.token }}
+      run: node "$GITHUB_ACTION_PATH/plan.mjs"

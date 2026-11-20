@@ -38,7 +38,7 @@ In the runner group's settings, allow only private repositories, so a public one
 
 | Job | Why |
 |---|---|
-| `release-npm.yml` | Trusted publishing (OIDC) works only on GitHub's runners |
+| `release.yml`, its release job | Trusted publishing (OIDC) works only on GitHub's runners |
 | A public repository's jobs | Free there anyway, and unsafe on a self-hosted runner |
 | A macOS or Windows build a machine cannot do | Those minutes cost 2x to 10x a Linux minute: keep them to tags |
 

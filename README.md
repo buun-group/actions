@@ -13,7 +13,8 @@ short caller files; the steps live here, once.
 | Check main, then deploy it | [`starters/deploy.yml`](starters/deploy.yml), which calls `ci.yml` then [`deploy.yml`](.github/workflows/deploy.yml) |
 | A preview version per pull request | [`starters/preview.yml`](starters/preview.yml) |
 | Undo a deploy in one click | [`starters/rollback.yml`](starters/rollback.yml), which calls [`rollback.yml`](.github/workflows/rollback.yml) |
-| Publish an npm package with provenance | [`starters/release.yml`](starters/release.yml), which calls [`release-npm.yml`](.github/workflows/release-npm.yml) |
+| Release every package of any repository the same way | [`starters/release.yml`](starters/release.yml), which calls [`release.yml`](.github/workflows/release.yml): finds the packages, publishes each new version where its `publishConfig` says, tags it, cuts the GitHub release |
+| Deploy every Worker of any repository the same way | [`starters/deploy.yml`](starters/deploy.yml), which calls [`deploy-workers.yml`](.github/workflows/deploy-workers.yml): finds the Workers from their wrangler config, deploys the changed ones |
 | Publish to GitHub Packages | [`npm-publish`](npm-publish/action.yml) with `registry: github` |
 | Tag and cut a GitHub release, from a version file or a given tag | [`github-release`](github-release/action.yml): notes from a changelog section or generated, files attached, safe to rerun |
 | Publish a Python package to PyPI | [`starters/release-pypi.yml`](starters/release-pypi.yml): [`python-build`](python-build/action.yml), then [`pypi-publish`](pypi-publish/action.yml) in the product's own job |
@@ -53,7 +54,7 @@ GitHub's runners for free, so this repository's own checks cost nothing.
 | Changes only to Markdown, `docs/` or `.changeset/` run nothing | starters | Doc edits are free |
 | `runs-on` reads `CI_RUNS_ON` | every workflow | A self-hosted runner costs no minutes |
 | Guard and standards run before the install | `ci.yml` | A run they fail costs seconds |
-| Large repositories are cloned without old file contents (`filter: blob:none`) | `ci.yml`, `release-npm.yml` | Checkout time |
+| Large repositories are cloned without old file contents (`filter: blob:none`) | `ci.yml`, `release.yml` | Checkout time |
 | A canary's hold time is opt in | `deploy.yml` | A 10, 50, 100 rollout holds 30 minutes; keep it for self-hosted runners |
 
 ## Contents
@@ -63,7 +64,10 @@ GitHub's runners for free, so this repository's own checks cost nothing.
 | [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | Reusable: every check, one job |
 | [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) | Reusable: one Worker to one environment, migrations first |
 | [`.github/workflows/rollback.yml`](.github/workflows/rollback.yml) | Reusable: one Worker back to an earlier version |
-| [`.github/workflows/release-npm.yml`](.github/workflows/release-npm.yml) | Reusable: one npm package, trusted publishing and provenance |
+| [`.github/workflows/release.yml`](.github/workflows/release.yml) | Reusable: every unreleased package version, published, tagged and released |
+| [`.github/workflows/deploy-workers.yml`](.github/workflows/deploy-workers.yml) | Reusable: every changed Worker, found from its wrangler config, deployed |
+| [`release/`](release/README.md) | Action: the release plan, which packages and versions, with nothing configured |
+| [`workers/`](workers/README.md) | Action: the deploy plan, which Workers and what each needs, with nothing configured |
 | [`.github/workflows/check.yml`](.github/workflows/check.yml) | This repository's own checks: actionlint, zizmor, tests |
 | [`changes/`](changes/README.md) | Action: areas from the pnpm graph and globs, full run on shared files, nothing on ignored ones |
 | [`tasks/`](tasks/README.md) | Action: run each `area: command` whose area changed, report every failure |

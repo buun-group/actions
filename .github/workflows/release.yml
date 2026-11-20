@@ -1,0 +1,139 @@
+# Reusable: the one release flow for every repository. Bump a version, merge, and it ships.
+#
+#   job       what it does
+#   plan      finds every publishable package (the root, or each pnpm workspace package) whose tag is missing
+#   release   per package: install, test and build in its folder, publish to the registry its publishConfig names
+#             (npm with trusted publishing, or GitHub Packages with the job's token), then tag it and cut a GitHub
+#             release with the notes from its CHANGELOG.md section, or notes generated from the commits
+#
+# Nothing is configured per package. A version whose tag exists is skipped, and so is a publish the registry
+# already has, so every step is safe to rerun. Private packages are skipped unless include-private, which tags and
+# releases them without publishing (an app, a CLI). Tags are v1.2.0 for a single package, core-v1.2.0 in a workspace.
+#
+# The release job runs on GitHub's runners: npm trusted publishing needs them. On npmjs.com the trusted publisher
+# names the CALLING workflow file. PyPI refuses reusable workflows, so Python uses the release-pypi starter.
+#
+#   on: { push: { branches: [main] }, workflow_dispatch: {} }
+#   jobs:
+#     release:
+#       uses: buun-group/actions/.github/workflows/release.yml@v1
+#       permissions: { contents: write, packages: write, id-token: write }
+
+name: release
+
+on:
+  workflow_call:
+    inputs:
+      tag-format:
+        description: "{name} and {version}. Empty: v{version} for one package, {name}-v{version} for a workspace."
+        type: string
+        default: ''
+      include-private:
+        type: boolean
+        default: false
+      only:
+        description: Package names or folders to consider, space separated. Empty considers all.
+        type: string
+        default: ''
+      test-command:
+        description: Run in each package's folder before it publishes. The default tests and builds when it has the scripts.
+        type: string
+        default: npm run --if-present test && npm run --if-present build
+      node-version:
+        description: Trusted publishing needs Node 22.14 or later.
+        type: string
+        default: '24'
+      rebuild:
+        description: Packages whose install script must run, such as "esbuild workerd".
+        type: string
+        default: ''
+      dist-tag:
+        type: string
+        default: latest
+      environment:
+        description: The GitHub environment the release job runs in (and npm's trusted publisher names, if it names one).
+        type: string
+        default: release
+      runs-on:
+        description: The plan job's runner, as JSON. The release job always runs on GitHub's.
+        type: string
+        default: '"ubuntu-latest"'
+    outputs:
+      count:
+        value: ${{ jobs.plan.outputs.count }}
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+
+jobs:
+  plan:
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      count: ${{ steps.plan.outputs.count }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: plan
+        uses: buun-group/actions/release@v1
+        with:
+          tag-format: ${{ inputs.tag-format }}
+          include-private: ${{ inputs.include-private }}
+          only: ${{ inputs.only }}
+
+  release:
+    needs: plan
+    if: needs.plan.outputs.count != '0'
+    name: Release ${{ matrix.name }} ${{ matrix.version }}
+    # hosted: npm trusted publishing works only on GitHub's runners.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    concurrency:
+      group: release-${{ github.repository }}-${{ matrix.tag }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          filter: blob:none
+          persist-credentials: false
+
+      - uses: buun-group/actions/setup@v1
+        with:
+          node-version: ${{ inputs.node-version }}
+          rebuild: ${{ inputs.rebuild }}
+
+      - name: Test and build
+        if: inputs.test-command != ''
+        working-directory: ${{ matrix.dir }}
+        env:
+          COMMAND: ${{ inputs.test-command }}
+        run: bash -euo pipefail -c "$COMMAND"
+
+      - if: matrix.publish
+        uses: buun-group/actions/npm-publish@v1
+        with:
+          package-directory: ${{ matrix.dir }}
+          registry: ${{ matrix.registryKind }}
+          publisher: auto
+          dist-tag: ${{ inputs.dist-tag }}
+          github-token: ${{ matrix.registryKind == 'github' && github.token || '' }}
+
+      - uses: buun-group/actions/github-release@v1
+        with:
+          tag: ${{ matrix.tag }}
+          changelog: ${{ matrix.dir }}/CHANGELOG.md

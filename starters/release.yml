@@ -1,8 +1,9 @@
-# Versions and publishes an npm package. Copy to .github/workflows/release.yml, keeping that file name: the package's
-# trusted publisher on npmjs.com names this repository and release.yml.
+# Releases every package whose version is not tagged yet. Copy to .github/workflows/release.yml and keep the file
+# name: an npm trusted publisher names this repository and release.yml. Nothing here names a package.
 #
-# release-please keeps a pull request open with the next version and changelog. Merging it tags the release, and the
-# publish job then runs on GitHub's own runners, which trusted publishing needs.
+# To release: bump the version (and a CHANGELOG.md section, if the package keeps one) and merge to main. Each new
+# version is tested, published where its package.json's publishConfig says (npm by default, or GitHub Packages),
+# tagged (v1.2.0 alone, core-v1.2.0 in a workspace) and released on GitHub with its notes.
 
 name: release
 
@@ -18,25 +19,12 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  please:
-    runs-on: ${{ fromJSON(vars.CI_RUNS_ON || '"ubuntu-latest"') }}
-    timeout-minutes: 5
+  release:
+    uses: buun-group/actions/.github/workflows/release.yml@v1
     permissions:
       contents: write
-      pull-requests: write
-    outputs:
-      released: ${{ steps.please.outputs['packages/sdk--release_created'] }}
-    steps:
-      - id: please
-        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
-
-  sdk:
-    needs: please
-    if: needs.please.outputs.released == 'true'
-    uses: buun-group/actions/.github/workflows/release-npm.yml@v1
-    with:
-      package-directory: packages/sdk
-      test-command: pnpm test
-    permissions:
-      contents: read
+      packages: write
       id-token: write
+    with:
+      runs-on: ${{ vars.CI_RUNS_ON || '"ubuntu-latest"' }}
+      # include-private: true   # also tag and release private packages (an app, a CLI) without publishing

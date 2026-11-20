@@ -1,8 +1,9 @@
 # Checks main and deploys the Workers whose code changed since the last green deploy. Copy to
-# .github/workflows/deploy.yml and add one job per Worker.
+# .github/workflows/deploy.yml as it is: nothing here names a Worker.
 #
-# base: last-success compares with this workflow's last successful run, so a failed deploy is retried by the next
-# push. Each Worker's job runs when its package's area is true: @acme/api is the area api. A manual run deploys all.
+# deploy-workers finds every Worker from its wrangler config and reads its D1 binding, its address and its build
+# script for the environment. A Worker's own package.json may set "deploy": { "smokePath": "/health" } or
+# "deploy": { "skip": true }. A manual run can name Workers, or "all".
 
 name: deploy
 
@@ -15,13 +16,17 @@ on:
         type: choice
         options: [production, preview]
         default: production
+      workers:
+        description: Empty for what changed since the last green deploy, names such as "api web", or "all".
+        type: string
+        default: ''
 
 permissions:
   contents: read
   actions: read
 
 concurrency:
-  group: deploy-${{ github.ref }}
+  group: deploy-${{ inputs.environment || 'production' }}
   cancel-in-progress: false
 
 jobs:
@@ -29,9 +34,10 @@ jobs:
     uses: buun-group/actions/.github/workflows/ci.yml@v1
     with:
       runs-on: ${{ vars.CI_RUNS_ON || '"ubuntu-latest"' }}
+      base: last-success
+      scope: ${{ inputs.workers == 'all' && 'full' || 'auto' }}
       standards-repository: ${{ vars.STANDARDS_REPOSITORY }}
       standards-app-client-id: ${{ vars.STANDARDS_APP_CLIENT_ID }}
-      base: last-success
       tasks: |
         *: pnpm lint
         *: pnpm -r $CI_PNPM_FILTER --if-present run typecheck
@@ -39,16 +45,14 @@ jobs:
     secrets:
       STANDARDS_APP_PRIVATE_KEY: ${{ secrets.STANDARDS_APP_PRIVATE_KEY }}
 
-  api:
+  deploy:
     needs: ci
-    if: fromJSON(needs.ci.outputs.areas).api
-    uses: buun-group/actions/.github/workflows/deploy.yml@v1
+    uses: buun-group/actions/.github/workflows/deploy-workers.yml@v1
     with:
       environment: ${{ inputs.environment || 'production' }}
+      areas: ${{ needs.ci.outputs.areas }}
+      full: ${{ needs.ci.outputs.full }}
+      workers: ${{ inputs.workers }}
       runs-on: ${{ vars.CI_RUNS_ON || '"ubuntu-latest"' }}
-      working-directory: apps/api
-      d1-database: DB
-      smoke-path: /health
-      url: https://api.example.com
       # rollout: '10,50,100'   # a canary; holds cost minutes, so only on a self-hosted runner
     secrets: inherit

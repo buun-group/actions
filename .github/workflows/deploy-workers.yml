@@ -1,0 +1,121 @@
+# Reusable: the one deploy flow for every repository of Cloudflare Workers.
+#
+#   job      what it does
+#   plan     finds every Worker from its wrangler config and reads what deploying it takes: the D1 binding whose
+#            migrations folder exists, its address for the environment (its first route), its build:<env> script
+#   deploy   per chosen Worker, deploy.yml: install, build, D1 bookmark and migrations, versions upload, smoke test,
+#            traffic in the rollout's stages, revert on failure
+#
+# Which Workers: those whose area changed (pass the ci workflow's areas and full outputs), every one when no areas
+# are given, or exactly the ones named in `workers`. Submodules are left to their own repositories.
+# Nothing is configured per Worker here. A Worker's own package.json may say "deploy": { "smokePath": "/health" }
+# or "deploy": { "skip": true }.
+#
+#   jobs:
+#     ci:
+#       uses: buun-group/actions/.github/workflows/ci.yml@v1
+#       with: { base: last-success }
+#     deploy:
+#       needs: ci
+#       uses: buun-group/actions/.github/workflows/deploy-workers.yml@v1
+#       with:
+#         environment: production
+#         areas: ${{ needs.ci.outputs.areas }}
+#         full: ${{ needs.ci.outputs.full }}
+#       secrets: inherit
+
+name: deploy workers
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: The GitHub environment, and the wrangler environment where the config declares it.
+        type: string
+        required: true
+      areas:
+        description: The ci workflow's areas output. Empty deploys every Worker.
+        type: string
+        default: ''
+      full:
+        type: string
+        default: 'false'
+      workers:
+        description: Worker names or folders to deploy, changed or not, space separated. Empty or "all" goes by the areas.
+        type: string
+        default: ''
+      runs-on:
+        type: string
+        default: '"ubuntu-latest"'
+      rollout:
+        type: string
+        default: '100'
+      hold-minutes:
+        type: string
+        default: '15'
+      upload-only:
+        type: boolean
+        default: false
+      rebuild:
+        type: string
+        default: esbuild workerd
+      max-parallel:
+        type: number
+        default: 4
+    secrets:
+      CLOUDFLARE_API_TOKEN:
+        required: false
+      CLOUDFLARE_ACCOUNT_ID:
+        required: false
+    outputs:
+      count:
+        value: ${{ jobs.plan.outputs.count }}
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      count: ${{ steps.plan.outputs.count }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: plan
+        uses: buun-group/actions/workers@v1
+        with:
+          environment: ${{ inputs.environment }}
+          areas: ${{ inputs.areas }}
+          full: ${{ inputs.full }}
+          only: ${{ inputs.workers }}
+
+  deploy:
+    needs: plan
+    if: needs.plan.outputs.count != '0'
+    strategy:
+      fail-fast: false
+      max-parallel: ${{ inputs.max-parallel }}
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    uses: buun-group/actions/.github/workflows/deploy.yml@v1
+    with:
+      environment: ${{ inputs.environment }}
+      wrangler-env: ${{ matrix.wrangler-env }}
+      working-directory: ${{ matrix.dir }}
+      runs-on: ${{ inputs.runs-on }}
+      rebuild: ${{ inputs.rebuild }}
+      build-command: ${{ matrix.build-command }}
+      d1-database: ${{ matrix.d1-database }}
+      smoke-path: ${{ matrix.smoke-path }}
+      url: ${{ matrix.url }}
+      rollout: ${{ inputs.rollout }}
+      hold-minutes: ${{ inputs.hold-minutes }}
+      upload-only: ${{ inputs.upload-only }}
+    # Only the two Cloudflare values travel on. deploy.yml's job names the environment, so its own environment
+    # secrets of the same names apply there when the caller passes none.
+    secrets:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
