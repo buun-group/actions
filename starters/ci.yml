@@ -1,12 +1,16 @@
-# Checks a pull request, running only what its files need. Copy to .github/workflows/ci.yml.
+# Checks pull requests and pushes to dev and main, running only what their files need. Copy to
+# .github/workflows/ci.yml.
 #
-# A pnpm workspace needs no filters: each package is an area, and the commands narrow themselves with the CI_*
-# variables. A single-package repository leaves them empty and runs everything. docs/selective.md explains it.
+# The branch flow is checked first: feat/* (and the other kinds) merge into dev, and only dev merges into main. A
+# pull request from the wrong branch fails in seconds. A pnpm workspace needs no filters: each package is an area.
+# docs/branches.md and docs/selective.md explain both.
 
 name: ci
 
 on:
   pull_request:
+  push:
+    branches: [dev, main]
   workflow_dispatch:
 
 permissions:
@@ -15,7 +19,7 @@ permissions:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/dev' }}
 
 jobs:
   ci:
@@ -23,6 +27,9 @@ jobs:
     with:
       # Set CI_RUNS_ON once on the organisation, such as ["self-hosted","buun"], and every repository runs free.
       runs-on: ${{ vars.CI_RUNS_ON || '"ubuntu-latest"' }}
+      base: ${{ github.event_name == 'push' && 'last-success' || '' }}
+      # merge-rules: |                        # the default is main: dev, and dev: feat/* fix/* chore/* ...
+      #   main: dev hotfix/*
       standards-repository: ${{ vars.STANDARDS_REPOSITORY }}
       standards-app-client-id: ${{ vars.STANDARDS_APP_CLIENT_ID }}
       # rebuild: esbuild workerd              # when tests or dry runs use wrangler or the Workers pool

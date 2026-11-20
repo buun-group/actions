@@ -62,6 +62,10 @@ on:
       max-parallel:
         type: number
         default: 4
+      environment-branches:
+        description: 'Which branch may deploy to which environment, "environment: branch-glob". Empty keeps the default (production: main, preview: dev).'
+        type: string
+        default: ''
     secrets:
       CLOUDFLARE_API_TOKEN:
         required: false
@@ -114,6 +118,7 @@ jobs:
       rollout: ${{ inputs.rollout }}
       hold-minutes: ${{ inputs.hold-minutes }}
       upload-only: ${{ inputs.upload-only }}
+      environment-branches: ${{ inputs.environment-branches }}
     # Only the two Cloudflare values travel on. deploy.yml's job names the environment, so its own environment
     # secrets of the same names apply there when the caller passes none.
     secrets:

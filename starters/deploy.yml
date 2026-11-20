@@ -1,21 +1,18 @@
-# Checks main and deploys the Workers whose code changed since the last green deploy. Copy to
-# .github/workflows/deploy.yml as it is: nothing here names a Worker.
+# Deploys the Workers whose code changed since the last green deploy: dev to preview (the beta), main to production.
+# Copy to .github/workflows/deploy.yml as it is: nothing here names a Worker.
 #
-# deploy-workers finds every Worker from its wrangler config and reads its D1 binding, its address and its build
-# script for the environment. A Worker's own package.json may set "deploy": { "smokePath": "/health" } or
-# "deploy": { "skip": true }. A manual run can name Workers, or "all".
+# The branch decides the environment, and the shared deploy refuses any other pairing: a manual run on a feature
+# branch can deploy nothing, and only main reaches production. A manual run can name Workers, or "all".
+# deploy-workers finds every Worker from its wrangler config; a Worker's own package.json may set
+# "deploy": { "smokePath": "/health" } or "deploy": { "skip": true }.
 
 name: deploy
 
 on:
   push:
-    branches: [main]
+    branches: [dev, main]
   workflow_dispatch:
     inputs:
-      environment:
-        type: choice
-        options: [production, preview]
-        default: production
       workers:
         description: Empty for what changed since the last green deploy, names such as "api web", or "all".
         type: string
@@ -26,7 +23,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: deploy-${{ inputs.environment || 'production' }}
+  group: deploy-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -49,7 +46,8 @@ jobs:
     needs: ci
     uses: buun-group/actions/.github/workflows/deploy-workers.yml@v1
     with:
-      environment: ${{ inputs.environment || 'production' }}
+      # main is production, dev is preview; deploy refuses any other branch.
+      environment: ${{ github.ref_name == 'main' && 'production' || 'preview' }}
       areas: ${{ needs.ci.outputs.areas }}
       full: ${{ needs.ci.outputs.full }}
       workers: ${{ inputs.workers }}

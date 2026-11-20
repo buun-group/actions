@@ -10,6 +10,7 @@ How to use this repository's workflows in a product.
 
 | Path | Purpose |
 |---|---|
+| [`branches.md`](branches.md) | The branch flow: feat into dev into main, preview and beta, production and stable |
 | [`selective.md`](selective.md) | Running only what changed: areas, package and test selection, why it stays safe, measured |
 | [`adopting.md`](adopting.md) | Moving a product over, what each old workflow becomes, the order to move them |
 | [`runners.md`](runners.md) | `CI_RUNS_ON`, self-hosted runners per organisation, what stays on GitHub's |

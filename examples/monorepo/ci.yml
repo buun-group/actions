@@ -15,6 +15,8 @@ name: ci
 
 on:
   pull_request:
+  push:
+    branches: [dev, main]
   workflow_dispatch:
 
 permissions:
@@ -23,13 +25,14 @@ permissions:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/dev' }}
 
 jobs:
   ci:
     uses: buun-group/actions/.github/workflows/ci.yml@v1
     with:
       runs-on: ${{ vars.CI_RUNS_ON || '"ubuntu-latest"' }}
+      base: ${{ github.event_name == 'push' && 'last-success' || '' }}
       standards-repository: ${{ vars.STANDARDS_REPOSITORY }}
       standards-app-client-id: ${{ vars.STANDARDS_APP_CLIENT_ID }}
       rebuild: esbuild workerd

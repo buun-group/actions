@@ -30,6 +30,10 @@ on:
       environment:
         type: string
         required: true
+      environment-branches:
+        description: 'Which branch may roll back which environment, "environment: branch-glob". Empty keeps the default (production: main, preview: dev).'
+        type: string
+        default: ''
       wrangler-env:
         description: The wrangler --env when it differs from environment. "-" means the top level of the config.
         type: string
@@ -92,6 +96,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      - uses: buun-group/actions/branches@v1
+        with:
+          environment: ${{ inputs.environment }}
+          environment-branches: ${{ inputs.environment-branches }}
+          check-merge: 'false'
 
       - uses: buun-group/actions/setup@v1
         with:

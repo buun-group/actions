@@ -67,7 +67,25 @@ describe('the plan', () => {
   it('skips private packages, or tags them without publishing when asked', () => {
     assert.equal(plan(packages, { ...base, existingTags: new Set() }).some((each) => each.private), false)
     const withPrivate = plan(packages, { ...base, includePrivate: true, existingTags: new Set() })
-    assert.deepEqual(withPrivate.find((each) => each.name === '@acme/web'), { ...packages[2], tag: 'web-v3.0.0', publish: false, registryKind: 'npm' })
+    assert.deepEqual(withPrivate.find((each) => each.name === '@acme/web'), { ...packages[2], tag: 'web-v3.0.0', channel: 'stable', distTag: 'latest', publish: false, registryKind: 'npm' })
+  })
+
+  it('releases a beta of the next version of each package the push changed, under the dist-tag beta', () => {
+    const releases = plan(packages, { ...base, existingTags: new Set(), channel: 'beta', run: '42', changed: ['packages/sdk/src/index.ts'] })
+    assert.deepEqual(releases.map((each) => [each.tag, each.version, each.distTag]), [['sdk-v1.0.0-beta.42', '1.0.0-beta.42', 'beta']])
+  })
+
+  it('makes no beta of a version already released as stable', () => {
+    const releases = plan(packages, { ...base, existingTags: new Set(['sdk-v1.0.0']), channel: 'beta', run: '43', changed: ['packages/sdk/x.ts'] })
+    assert.deepEqual(releases, [])
+  })
+
+  it('treats every package as changed when the push has nothing to compare with', () => {
+    assert.equal(plan(packages, { ...base, existingTags: new Set(), channel: 'beta', run: '1', changed: null }).length, 2)
+  })
+
+  it('refuses a branch that releases nothing', () => {
+    assert.throws(() => plan(packages, { ...base, existingTags: new Set(), channel: '' }), /this branch releases nothing/)
   })
 
   it('considers only the packages named, by name or folder', () => {

@@ -55,13 +55,42 @@ export function packagesOf(root) {
     .filter((each) => typeof each.name === 'string' && typeof each.version === 'string')
 }
 
-/** What to release: the packages whose tag is missing. Private ones only when includePrivate (tag and release, no publish). */
-export function plan(packages, { tagFormat, existingTags, includePrivate, only }) {
+/**
+ * What to release: the packages whose tag is missing. Private ones only when includePrivate (tag and release, no
+ * publish). A beta releases the next version, still untagged as stable, of each package the push changed, as
+ * <version>-beta.<run>, under the npm dist-tag beta.
+ */
+export function plan(packages, { tagFormat, existingTags, includePrivate, only, channel = 'stable', run = '0', changed = null }) {
+  if (channel !== 'stable' && channel !== 'beta') throw new Error(`this branch releases nothing (channel "${channel}"); releases come from main (stable) and dev (beta)`)
   return packages
     .filter((each) => (only.length === 0 || only.includes(each.name) || only.includes(each.dir)))
     .filter((each) => includePrivate || !each.private)
-    .map((each) => ({ ...each, tag: tagFor(tagFormat, each.name, each.version), publish: !each.private, registryKind: each.registry.includes('npm.pkg.github.com') ? 'github' : 'npm' }))
+    .filter((each) => !existingTags.has(tagFor(tagFormat, each.name, each.version)))
+    .filter((each) => channel === 'stable' || changed === null || changed.some((file) => each.dir === '.' || file.startsWith(`${each.dir}/`)))
+    .map((each) => {
+      const version = channel === 'beta' ? `${each.version}-beta.${run}` : each.version
+      return {
+        ...each,
+        version,
+        tag: tagFor(tagFormat, each.name, version),
+        channel,
+        distTag: channel === 'beta' ? 'beta' : 'latest',
+        publish: !each.private,
+        registryKind: each.registry.includes('npm.pkg.github.com') ? 'github' : 'npm',
+      }
+    })
     .filter((each) => !existingTags.has(each.tag))
+}
+
+/** The files a push changed, or null when there is nothing to compare with (then every package counts as changed). */
+function changedFiles(before, head) {
+  if (!before || /^0+$/.test(before)) return null
+  try {
+    execFileSync('git', ['cat-file', '-e', `${before}^{commit}`])
+    return execFileSync('git', ['diff', '--name-only', before, head], { encoding: 'utf8' }).split('\n').filter(Boolean)
+  } catch {
+    return null
+  }
 }
 
 /** The repository's tags, from the API: no git credentials are kept on the runner for it. */
@@ -85,12 +114,14 @@ async function main(env) {
   const tagFormat = env.TAG_FORMAT || (single ? 'v{version}' : '{name}-v{version}')
   const tags = await tagsOf(env)
   const only = (env.ONLY ?? '').split(/[\s,]+/).filter(Boolean)
-  const releases = plan(packages, { tagFormat, existingTags: new Set(tags), includePrivate: env.INCLUDE_PRIVATE === 'true', only })
+  const channel = env.CHANNEL ?? 'stable'
+  const changed = channel === 'beta' ? changedFiles(env.BEFORE, env.HEAD) : null
+  const releases = plan(packages, { tagFormat, existingTags: new Set(tags), includePrivate: env.INCLUDE_PRIVATE === 'true', only, channel, run: env.RUN_NUMBER ?? '0', changed })
     .map((each) => ({ ...each, dir: relative('.', join(root, each.dir)) || '.' }))
 
-  const lines = releases.map((each) => `| ${each.name} | ${each.version} | ${each.tag} | ${each.publish ? each.registryKind : 'tag only'} |`)
+  const lines = releases.map((each) => `| ${each.name} | ${each.version} | ${each.tag} | ${each.publish ? `${each.registryKind}, ${each.distTag}` : 'tag only'} |`)
   const summary = releases.length
-    ? `### Release plan\n\n| Package | Version | Tag | Publish to |\n|---|---|---|---|\n${lines.join('\n')}\n`
+    ? `### Release plan: ${channel}\n\n| Package | Version | Tag | Publish to |\n|---|---|---|---|\n${lines.join('\n')}\n`
     : `### Release plan\n\nEvery version of ${packages.length} package(s) is already tagged. Bump a version to release it.\n`
   if (env.GITHUB_STEP_SUMMARY) appendFileSync(env.GITHUB_STEP_SUMMARY, summary)
   console.log(summary)

@@ -7,6 +7,7 @@ short caller files; the steps live here, once.
 
 | You want | Use |
 |---|---|
+| Hold feat into dev, dev into main, dev to preview and beta, main to production | Built into every workflow: [branches](docs/branches.md) |
 | Run only the checks, tests and deploys a change needs | [`changes`](changes/README.md) and [`tasks`](tasks/README.md), built into `ci.yml`: [running only what changed](docs/selective.md) |
 | See it on a whole monorepo | [`examples/monorepo/`](examples/README.md) |
 | Check a pull request | [`starters/ci.yml`](starters/ci.yml), which calls [`ci.yml`](.github/workflows/ci.yml) |
@@ -69,6 +70,7 @@ GitHub's runners for free, so this repository's own checks cost nothing.
 | [`release/`](release/README.md) | Action: the release plan, which packages and versions, with nothing configured |
 | [`workers/`](workers/README.md) | Action: the deploy plan, which Workers and what each needs, with nothing configured |
 | [`.github/workflows/check.yml`](.github/workflows/check.yml) | This repository's own checks: actionlint, zizmor, tests |
+| [`branches/`](branches/README.md) | Action: the branch flow, for merges, environments and release channels |
 | [`changes/`](changes/README.md) | Action: areas from the pnpm graph and globs, full run on shared files, nothing on ignored ones |
 | [`tasks/`](tasks/README.md) | Action: run each `area: command` whose area changed, report every failure |
 | [`examples/`](examples/README.md) | Whole workflows written on these actions |

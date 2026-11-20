@@ -16,6 +16,9 @@ inputs:
   token:
     description: Reads the repository's tags.
     default: ${{ github.token }}
+  channel:
+    description: stable releases each untagged version; beta releases <version>-beta.<run> of each package the push changed. From the branches action's channel output.
+    default: stable
 
 outputs:
   matrix:
@@ -35,4 +38,8 @@ runs:
         ONLY: ${{ inputs.only }}
         WORKING_DIRECTORY: ${{ inputs.working-directory }}
         TOKEN: ${{ inputs.token }}
+        CHANNEL: ${{ inputs.channel }}
+        RUN_NUMBER: ${{ github.run_number }}
+        BEFORE: ${{ github.event.before }}
+        HEAD: ${{ github.sha }}
       run: node "$GITHUB_ACTION_PATH/plan.mjs"

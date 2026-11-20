@@ -8,8 +8,9 @@
 name: release
 
 on:
+  # dev releases a beta (1.2.0-beta.N, a GitHub prerelease, npm dist-tag beta); main releases it as stable.
   push:
-    branches: [main]
+    branches: [dev, main]
   workflow_dispatch:
 
 permissions: {}

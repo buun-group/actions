@@ -1,0 +1,46 @@
+name: Buun branch policy
+description: Check the branch flow where GitHub's branch protection cannot (private repositories on a free plan). Which branches merge into which (feat/* into dev, dev into main), which branch may act on which environment (dev on preview, main on production), and what a branch releases as (dev beta, main stable).
+
+inputs:
+  merge-rules:
+    description: |
+      One base per line, "base: head-glob head-glob". A pull request into a listed base from any other branch fails.
+      Empty keeps the default (main: dev; dev: feat/* fix/* chore/* docs/* refactor/* perf/* test/* ci/* build/*
+      style/* deps/* revert/* dependabot/* renovate/*); "-" turns merge rules off.
+    default: ''
+  environment-branches:
+    description: One environment per line, "environment: branch-glob". Empty keeps the default (production main, preview dev).
+    default: ''
+  channels:
+    description: One branch per line, "branch-glob: channel". Empty keeps the default (main stable, dev beta).
+    default: ''
+  check-merge:
+    description: "'true' checks a pull request's head against its base."
+    default: 'true'
+  environment:
+    description: An environment this run acts on; the run fails when its branch may not. Empty checks none.
+    default: ''
+
+outputs:
+  channel:
+    description: What this branch releases as (stable, beta), or empty for a branch that releases nothing.
+    value: ${{ steps.policy.outputs.channel }}
+  environment:
+    description: The environment this branch deploys to (production, preview), or empty.
+    value: ${{ steps.policy.outputs.environment }}
+
+runs:
+  using: composite
+  steps:
+    - id: policy
+      shell: bash
+      env:
+        MERGE_RULES: ${{ inputs.merge-rules }}
+        ENVIRONMENT_RULES: ${{ inputs.environment-branches }}
+        CHANNEL_RULES: ${{ inputs.channels }}
+        CHECK_MERGE: ${{ inputs.check-merge }}
+        ENVIRONMENT: ${{ inputs.environment }}
+        BASE_REF: ${{ github.base_ref }}
+        HEAD_REF: ${{ github.head_ref }}
+        REF_NAME: ${{ github.ref_name }}
+      run: node "$GITHUB_ACTION_PATH/policy.mjs"

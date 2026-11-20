@@ -86,6 +86,10 @@ on:
       guard:
         type: boolean
         default: true
+      merge-rules:
+        description: 'Which branches may merge into which, "base: head-glob". Empty keeps the default (main: dev; dev: feat/* fix/* chore/* and the other conventional kinds); "-" turns it off.'
+        type: string
+        default: ''
       standards-repository:
         description: The standards repository, owner/name (vars.STANDARDS_REPOSITORY). Empty skips the standards gates.
         type: string
@@ -127,6 +131,12 @@ jobs:
           fetch-depth: 0
           filter: blob:none
           persist-credentials: false
+
+      # The branch flow first: a pull request from the wrong branch fails in seconds, before anything installs.
+      - if: github.event_name == 'pull_request'
+        uses: buun-group/actions/branches@v1
+        with:
+          merge-rules: ${{ inputs.merge-rules }}
 
       # pnpm and Node first, without installing: changes asks pnpm which workspace packages changed.
       - id: toolchain

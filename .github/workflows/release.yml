@@ -6,6 +6,10 @@
 #             (npm with trusted publishing, or GitHub Packages with the job's token), then tag it and cut a GitHub
 #             release with the notes from its CHANGELOG.md section, or notes generated from the commits
 #
+# Channels follow the branch (the branches action): main releases each untagged version as stable (latest);
+# dev releases <version>-beta.<run> of each package the push changed, as a prerelease under the npm dist-tag beta.
+# A run on any other branch fails before it plans anything.
+#
 # Nothing is configured per package. A version whose tag exists is skipped, and so is a publish the registry
 # already has, so every step is safe to rerun. Private packages are skipped unless include-private, which tags and
 # releases them without publishing (an app, a CLI). Tags are v1.2.0 for a single package, core-v1.2.0 in a workspace.
@@ -47,9 +51,10 @@ on:
         description: Packages whose install script must run, such as "esbuild workerd".
         type: string
         default: ''
-      dist-tag:
+      channels:
+        description: 'What each branch releases as, "branch-glob: channel". Empty keeps the default (main: stable, dev: beta). Any other branch releases nothing and the run fails.'
         type: string
-        default: latest
+        default: ''
       environment:
         description: The GitHub environment the release job runs in (and npm's trusted publisher names, if it names one).
         type: string
@@ -77,15 +82,24 @@ jobs:
       matrix: ${{ steps.plan.outputs.matrix }}
       count: ${{ steps.plan.outputs.count }}
     steps:
+      # History without file contents: a beta compares the push's commits to find the packages it changed.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 0
+          filter: blob:none
           persist-credentials: false
+      - id: branch
+        uses: buun-group/actions/branches@v1
+        with:
+          channels: ${{ inputs.channels }}
+          check-merge: 'false'
       - id: plan
         uses: buun-group/actions/release@v1
         with:
           tag-format: ${{ inputs.tag-format }}
           include-private: ${{ inputs.include-private }}
           only: ${{ inputs.only }}
+          channel: ${{ steps.branch.outputs.channel }}
 
   release:
     needs: plan
@@ -117,6 +131,14 @@ jobs:
           node-version: ${{ inputs.node-version }}
           rebuild: ${{ inputs.rebuild }}
 
+      # A beta publishes <version>-beta.<run>: the version is set in this checkout only, never committed.
+      - name: Set the beta version
+        if: matrix.channel == 'beta'
+        working-directory: ${{ matrix.dir }}
+        env:
+          VERSION: ${{ matrix.version }}
+        run: npm version "$VERSION" --no-git-tag-version --allow-same-version
+
       - name: Test and build
         if: inputs.test-command != ''
         working-directory: ${{ matrix.dir }}
@@ -130,7 +152,7 @@ jobs:
           package-directory: ${{ matrix.dir }}
           registry: ${{ matrix.registryKind }}
           publisher: auto
-          dist-tag: ${{ inputs.dist-tag }}
+          dist-tag: ${{ matrix.distTag }}
           github-token: ${{ matrix.registryKind == 'github' && github.token || '' }}
 
       - uses: buun-group/actions/github-release@v1
