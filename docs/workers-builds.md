@@ -49,26 +49,12 @@ section 9) keep it to simple projects.
 
 ## 3. By script, every Worker at once
 
-[`workers-builds/connect.mjs`](../workers-builds/connect.mjs), run from a product's root, finds every Worker from its
-wrangler config (as `deploy-workers` does) and connects each to Workers Builds: production builds `build:production`
-and deploys with `--env production`; other branches build `build:preview` and upload a preview version; the watch paths
-are the Worker's folder, the workspace packages it uses, and the root install files.
+Staff connect Workers with a tool in the private developer tools, which runs the API calls below for every Worker it
+finds from the wrangler config. It acts with a person's own Cloudflare user token, so it lives with the staff tools,
+not here.
 
-```sh
-node <actions>/workers-builds/connect.mjs                           # plan every Worker, change nothing
-node <actions>/workers-builds/connect.mjs --only docs --apply       # connect one
-```
-
-| Needs | Where |
-|---|---|
-| `CLOUDFLARE_BUILDS_TOKEN` | A user token with Workers Builds Configuration: Edit and Workers Scripts: Read |
-| `CLOUDFLARE_ACCOUNT_ID` | The product's account |
-| A build token on the account | Dashboard, Settings, Builds, API token (or `BUILD_TOKEN_UUID`) |
-| The GitHub App on the organisation | Dashboard, once per GitHub organisation |
-| `gh` signed in | Reads the repository's GitHub ids |
-
-A Worker connected here deploys itself on push, so mark it `"deploy": { "skip": true }` in its package.json for
-`deploy-workers`, and `"deploy": { "builds": false }` keeps one out of this script.
+A Worker connected to Workers Builds deploys itself on push, so mark it `"deploy": { "skip": true }` in its
+package.json and `deploy-workers` leaves it alone.
 
 ## 4. By API
 

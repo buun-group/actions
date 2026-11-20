@@ -62,7 +62,6 @@ jobs:
             tasks: tasks/**
             release: release/**
             workers: workers/**
-            builds: workers-builds/** workers/** release/**
       - uses: ./tasks
         with:
           areas: ${{ steps.changes.outputs.areas }}
@@ -73,4 +72,3 @@ jobs:
             tasks: node --test tasks/tasks.test.mjs
             release: node --test release/plan.test.mjs
             workers: node --test workers/plan.test.mjs
-            builds: node --test workers-builds/connect.test.mjs

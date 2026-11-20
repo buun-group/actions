@@ -67,7 +67,6 @@ GitHub's runners for free, so this repository's own checks cost nothing.
 | [`.github/workflows/release.yml`](.github/workflows/release.yml) | Reusable: every unreleased package version, published, tagged and released |
 | [`.github/workflows/deploy-workers.yml`](.github/workflows/deploy-workers.yml) | Reusable: every changed Worker, found from its wrangler config, deployed |
 | [`release/`](release/README.md) | Action: the release plan, which packages and versions, with nothing configured |
-| [`workers-builds/`](workers-builds/connect.mjs) | Script: connect every Worker to Cloudflare Workers Builds from its wrangler config |
 | [`workers/`](workers/README.md) | Action: the deploy plan, which Workers and what each needs, with nothing configured |
 | [`.github/workflows/check.yml`](.github/workflows/check.yml) | This repository's own checks: actionlint, zizmor, tests |
 | [`changes/`](changes/README.md) | Action: areas from the pnpm graph and globs, full run on shared files, nothing on ignored ones |
