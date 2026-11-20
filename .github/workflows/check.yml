@@ -60,6 +60,9 @@ jobs:
             deploy: wrangler-deploy/**
             changes: changes/**
             tasks: tasks/**
+            release: release/**
+            workers: workers/**
+            builds: workers-builds/** workers/** release/**
       - uses: ./tasks
         with:
           areas: ${{ steps.changes.outputs.areas }}
@@ -68,3 +71,6 @@ jobs:
             deploy: node --test wrangler-deploy/deploy.test.mjs
             changes: node --test changes/changes.test.mjs
             tasks: node --test tasks/tasks.test.mjs
+            release: node --test release/plan.test.mjs
+            workers: node --test workers/plan.test.mjs
+            builds: node --test workers-builds/connect.test.mjs
