@@ -129,7 +129,8 @@ jobs:
           persist-credentials: false
 
       # pnpm and Node first, without installing: changes asks pnpm which workspace packages changed.
-      - uses: buun-group/actions/setup@v1
+      - id: toolchain
+        uses: buun-group/actions/setup@v1
         with:
           working-directory: ${{ inputs.working-directory }}
           node-version: ${{ inputs.node-version }}
@@ -210,6 +211,12 @@ jobs:
           working-directory: ${{ inputs.working-directory }}
 
       - name: Audit production dependencies
-        if: steps.changes.outputs.none != 'true' && (inputs.audit == 'always' || (inputs.audit == 'auto' && steps.changes.outputs.full == 'true'))
+        if: steps.changes.outputs.none != 'true' && steps.toolchain.outputs.package-manager != 'none' && (inputs.audit == 'always' || (inputs.audit == 'auto' && steps.changes.outputs.full == 'true'))
         working-directory: ${{ inputs.working-directory }}
-        run: pnpm audit --prod --audit-level=high
+        env:
+          MANAGER: ${{ steps.toolchain.outputs.package-manager }}
+        run: |
+          case "$MANAGER" in
+            pnpm) pnpm audit --prod --audit-level=high ;;
+            npm) npm audit --omit=dev --audit-level=high ;;
+          esac

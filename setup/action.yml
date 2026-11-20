@@ -1,21 +1,24 @@
 name: Buun setup
-description: Install pnpm and Node, restore the pnpm store, and install the workspace from its lockfile without running install scripts.
+description: Set up Node and the repository's package manager, found from its lockfile (pnpm, npm, or none), restore its cache, and install from the lockfile without running install scripts.
 
 inputs:
   working-directory:
     description: Where package.json and the lockfile live.
     default: .
   node-version:
-    description: A Node version. Empty reads node-version-file instead.
+    description: A Node version. Empty reads node-version-file instead, then falls back to the current LTS.
     default: ''
   node-version-file:
     description: File naming the Node version, relative to the repository root.
     default: .nvmrc
+  package-manager:
+    description: auto finds it from the lockfile (pnpm-lock.yaml is pnpm, package-lock.json is npm, neither installs nothing); or pnpm, npm, none.
+    default: auto
   install:
-    description: "'true' sets up pnpm and Node and installs; 'false' sets them up only; 'only' installs, for a second call after a 'false' one."
+    description: "'true' sets up and installs; 'false' sets up only; 'only' installs, for a second call after a 'false' one."
     default: 'true'
   install-args:
-    description: Extra arguments for pnpm install.
+    description: Extra arguments for the install.
     default: ''
   rebuild:
     description: Packages whose install script must run after all, space separated, such as "esbuild workerd" for wrangler and vitest-pool-workers.
@@ -27,10 +30,36 @@ inputs:
     description: The scope served by registry-url, such as @buun-group.
     default: ''
 
+outputs:
+  package-manager:
+    description: pnpm, npm or none.
+    value: ${{ steps.manager.outputs.name }}
+
 runs:
   using: composite
   steps:
-    - if: inputs.install != 'only'
+    - name: Find the package manager
+      id: manager
+      shell: bash
+      env:
+        CHOSEN: ${{ inputs.package-manager }}
+        DIR: ${{ inputs.working-directory }}
+      run: |
+        case "$CHOSEN" in
+          pnpm|npm|none) name="$CHOSEN" ;;
+          auto)
+            if [ -f "$DIR/pnpm-lock.yaml" ]; then name=pnpm
+            elif [ -f "$DIR/package-lock.json" ]; then name=npm
+            else name=none; fi ;;
+          *) echo "::error::package-manager must be auto, pnpm, npm or none, not $CHOSEN"; exit 1 ;;
+        esac
+        echo "name=$name" >> "$GITHUB_OUTPUT"
+        case "$name" in
+          pnpm) echo "lockfile=$DIR/pnpm-lock.yaml" >> "$GITHUB_OUTPUT" ;;
+          npm) echo "lockfile=$DIR/package-lock.json" >> "$GITHUB_OUTPUT" ;;
+        esac
+
+    - if: inputs.install != 'only' && steps.manager.outputs.name == 'pnpm'
       uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       with:
         package_json_file: ${{ inputs.working-directory }}/package.json
@@ -53,29 +82,29 @@ runs:
       with:
         node-version: ${{ steps.node.outputs.version }}
         node-version-file: ${{ steps.node.outputs.file }}
-        cache: pnpm
-        cache-dependency-path: ${{ inputs.working-directory }}/pnpm-lock.yaml
+        cache: ${{ steps.manager.outputs.name != 'none' && steps.manager.outputs.name || '' }}
+        cache-dependency-path: ${{ steps.manager.outputs.lockfile }}
         registry-url: ${{ inputs.registry-url }}
         scope: ${{ inputs.scope }}
 
     # --ignore-scripts: a dependency's install script never runs in CI (core/dependencies). A package that needs a
-    # native build is rebuilt by name in the caller, such as `pnpm rebuild esbuild workerd`.
+    # native build is rebuilt by name, such as `pnpm rebuild esbuild workerd`.
     - name: Install from the lockfile
-      if: inputs.install == 'true' || inputs.install == 'only'
+      if: (inputs.install == 'true' || inputs.install == 'only') && steps.manager.outputs.name != 'none'
       shell: bash
       working-directory: ${{ inputs.working-directory }}
       env:
+        MANAGER: ${{ steps.manager.outputs.name }}
         EXTRA: ${{ inputs.install-args }}
-      run: |
-        # shellcheck disable=SC2086
-        pnpm install --frozen-lockfile --ignore-scripts $EXTRA
-
-    - name: Run the install scripts named in rebuild
-      if: (inputs.install == 'true' || inputs.install == 'only') && inputs.rebuild != ''
-      shell: bash
-      working-directory: ${{ inputs.working-directory }}
-      env:
         PACKAGES: ${{ inputs.rebuild }}
       run: |
+        set -euo pipefail
         # shellcheck disable=SC2086
-        pnpm rebuild $PACKAGES
+        case "$MANAGER" in
+          pnpm) pnpm install --frozen-lockfile --ignore-scripts $EXTRA ;;
+          npm) npm ci --ignore-scripts $EXTRA ;;
+        esac
+        if [ -n "$PACKAGES" ]; then
+          # shellcheck disable=SC2086
+          "$MANAGER" rebuild $PACKAGES
+        fi
