@@ -15,6 +15,7 @@ short caller files; the steps live here, once.
 | Undo a deploy in one click | [`starters/rollback.yml`](starters/rollback.yml), which calls [`rollback.yml`](.github/workflows/rollback.yml) |
 | Publish an npm package with provenance | [`starters/release.yml`](starters/release.yml), which calls [`release-npm.yml`](.github/workflows/release-npm.yml) |
 | Publish to GitHub Packages | [`npm-publish`](npm-publish/action.yml) with `registry: github` |
+| Tag and cut a GitHub release, from a version file or a given tag | [`github-release`](github-release/action.yml): notes from a changelog section or generated, files attached, safe to rerun |
 | Publish a Python package to PyPI | [`starters/release-pypi.yml`](starters/release-pypi.yml): [`python-build`](python-build/action.yml), then [`pypi-publish`](pypi-publish/action.yml) in the product's own job |
 | Mirror a folder to a public repository | [`mirror`](mirror/action.yml), with a GitHub App instead of a personal token |
 | List an MCP server on the registry | [`mcp-registry`](mcp-registry/action.yml) |
@@ -72,6 +73,7 @@ GitHub's runners for free, so this repository's own checks cost nothing.
 | [`standards/`](standards/README.md) | Action: the `.standards` gates at the pinned commit |
 | [`d1-migrate/`](d1-migrate/README.md) | Action: a Time Travel bookmark, then pending D1 migrations, a step of their own |
 | [`wrangler-deploy/`](wrangler-deploy/README.md) | Action: versions upload, smoke test, staged rollout, revert on failure |
+| [`github-release/`](github-release/action.yml) | Action: a tag (from a version file or given) and a GitHub release with notes and files |
 | [`npm-publish/`](npm-publish/action.yml) | Action: npm with trusted publishing and provenance, or GitHub Packages |
 | [`python-build/`](python-build/action.yml) | Action: uv build, twine check, upload the dist; no OIDC token |
 | [`pypi-publish/`](pypi-publish/action.yml) | Action: PyPI with trusted publishing and attestations, in the product's own job |
