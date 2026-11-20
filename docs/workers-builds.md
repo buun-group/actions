@@ -47,7 +47,30 @@ section 9) keep it to simple projects.
 
 4. Remove the Worker's deploy job from GitHub, so only one thing deploys it.
 
-## 3. By API
+## 3. By script, every Worker at once
+
+[`workers-builds/connect.mjs`](../workers-builds/connect.mjs), run from a product's root, finds every Worker from its
+wrangler config (as `deploy-workers` does) and connects each to Workers Builds: production builds `build:production`
+and deploys with `--env production`; other branches build `build:preview` and upload a preview version; the watch paths
+are the Worker's folder, the workspace packages it uses, and the root install files.
+
+```sh
+node <actions>/workers-builds/connect.mjs                           # plan every Worker, change nothing
+node <actions>/workers-builds/connect.mjs --only docs --apply       # connect one
+```
+
+| Needs | Where |
+|---|---|
+| `CLOUDFLARE_BUILDS_TOKEN` | A user token with Workers Builds Configuration: Edit and Workers Scripts: Read |
+| `CLOUDFLARE_ACCOUNT_ID` | The product's account |
+| A build token on the account | Dashboard, Settings, Builds, API token (or `BUILD_TOKEN_UUID`) |
+| The GitHub App on the organisation | Dashboard, once per GitHub organisation |
+| `gh` signed in | Reads the repository's GitHub ids |
+
+A Worker connected here deploys itself on push, so mark it `"deploy": { "skip": true }` in its package.json for
+`deploy-workers`, and `"deploy": { "builds": false }` keeps one out of this script.
+
+## 4. By API
 
 The API needs a **user** API token (an account token is refused) with *Workers Builds Configuration: Edit* and
 *Workers Scripts: Read*. Base `https://api.cloudflare.com/client/v4`, header `Authorization: Bearer <token>`.
