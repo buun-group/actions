@@ -12,7 +12,7 @@ inputs:
     description: The standards repository, owner/name (vars.STANDARDS_REPOSITORY).
     required: true
   semgrep:
-    description: "'true' installs semgrep for the optional AST gate."
+    description: "'true' installs semgrep, so the optional AST gate runs; the gates skip it when semgrep is missing."
     default: 'true'
 
 outputs:
@@ -69,9 +69,15 @@ runs:
         else python3 -m pip install --user semgrep
         fi
 
+    # The gates are TypeScript that Node runs as it is (22.18 or later strips the types). ci.py is a deprecated
+    # forwarding shim to this, removed in the standards' next major release, so it is not called here.
     - name: Run the standards gates
       if: steps.pin.outputs.sha != ''
       shell: bash
       env:
         STANDARDS_CI: 'true'
-      run: python3 .standards/claude/enforcement/ci.py < /dev/null
+      run: |
+        set -euo pipefail
+        node -e 'const [a, b] = process.versions.node.split(".").map(Number); if (a < 22 || (a === 22 && b < 18)) { console.error("::error::The standards gates need Node 22.18 or later; this runner has " + process.versions.node + ". Set Node up first (buun-group/actions/setup)."); process.exit(1) }'
+        test -f .standards/claude/enforcement/ci.ts || { echo "::error::The pinned standards have no claude/enforcement/ci.ts. Move the .standards pin to a release with the TypeScript gates."; exit 1; }
+        node .standards/claude/enforcement/ci.ts < /dev/null

@@ -1,6 +1,7 @@
 # Standards
 
-Runs the `.standards` gates (`ci.py`) at the commit the repository pins. The standards repository may be private, so
+Runs the `.standards` gates (`node claude/enforcement/ci.ts`, Node 22.18 or later) at the commit the repository pins.
+The deprecated `ci.py` shim is never called. The standards repository may be private, so
 a GitHub App installed on it mints a token that reads that one repository. A repository without `.standards` passes.
 
 ```yaml
