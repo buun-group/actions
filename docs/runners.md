@@ -30,7 +30,7 @@ So a repository does nothing: it calls the shared workflow, and its organisation
 ## 2. Moving an organisation onto its own machines
 
 1. Register a runner on the organisation with the label `buun` (the staff developer tools do it in one command, or
-   Settings, Actions, Runners, New runner).
+   Settings, Actions, Runners, New runner), or a runner scale set of Actions Runner Controller carrying that label.
 2. In the organisation's runner group, allow private repositories only.
 3. Set the variable:
 
@@ -41,7 +41,11 @@ So a repository does nothing: it calls the shared workflow, and its organisation
 4. To go back to GitHub's runners, delete the variable. Nothing else changes.
 
 Set the variable only once a runner is online: a job whose runner never appears waits in the queue for 24 hours
-before GitHub cancels it.
+before GitHub cancels it. A scale set that keeps no idle runner shows none online, and starts one when a job arrives;
+for it, check that its listener is running instead.
+
+A job that needs something only some machines have, such as a GPU, asks for it through the workflow's `runs-on` input
+(order 3 above), for example `runs-on: '["self-hosted","gpu"]'`, and a runner or scale set with that label takes it.
 
 ## 3. What a self-hosted machine needs
 
@@ -55,8 +59,9 @@ before GitHub cancels it.
 | `python3` with `pip` or `pipx` | The optional semgrep gate | The gate is skipped |
 | Docker | The PyPI publish action | PyPI publishes run on GitHub's runners in the starter |
 
-A self-hosted machine keeps its pnpm store between runs, so installs are faster than on GitHub's runners, which start
-empty.
+A long-lived self-hosted runner keeps its pnpm store between runs, so installs are faster than on GitHub's runners,
+which start empty. A runner made fresh for each job, as a scale set's are, starts with an empty store like GitHub's; a
+cache volume shared by the organisation's runners (npm's, for one) keeps the downloads.
 
 ## 4. What always runs on GitHub's runners
 
