@@ -60,7 +60,7 @@ on:
         type: string
         default: release
       runs-on:
-        description: The runner, as JSON, such as '["self-hosted","buun"]'. Empty uses the organisation's or repository's CI_RUNS_ON variable, then GitHub's runners. A public repository always uses GitHub's.
+        description: The runner, as JSON, such as '["buun"]'. Empty uses the organisation's or repository's CI_RUNS_ON variable, then GitHub's runners. A public repository always uses GitHub's.
         type: string
         default: ''
     outputs:

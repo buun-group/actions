@@ -23,7 +23,7 @@ short caller files; the steps live here, once.
 | List an MCP server on the registry | [`mcp-registry`](mcp-registry/action.yml) |
 | Put data back after a bad migration | `rollback.yml` with `d1-bookmark`: [rolling back](docs/rollback.md) |
 | Let Cloudflare build a static site for free | [Workers Builds](docs/workers-builds.md) |
-| Run for free | Set the variable `CI_RUNS_ON` to `["self-hosted","buun"]` on the organisation: [runners](docs/runners.md) |
+| Run for free | Set the variable `CI_RUNS_ON` to `["buun"]` on the organisation: [runners](docs/runners.md) |
 | Move a product over | [Adopting](docs/adopting.md) |
 
 ## Trusted publishing, per registry

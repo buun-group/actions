@@ -21,8 +21,8 @@ Every job in the shared workflows runs on the first of:
 |---|---|---|
 | 1 | GitHub's runners, when the repository is public | Always `ubuntu-latest` |
 | 2 | GitHub's runners, when the job publishes to npm | The release job of an npm package |
-| 3 | The workflow's `runs-on` input, if the caller passes one | `runs-on: '["self-hosted","big"]'` for one heavy repository |
-| 4 | The `CI_RUNS_ON` variable, the repository's or else the organisation's | `["self-hosted","buun"]` |
+| 3 | The workflow's `runs-on` input, if the caller passes one | `runs-on: '["big"]'` for one heavy repository |
+| 4 | The `CI_RUNS_ON` variable, the repository's or else the organisation's | `["buun"]` |
 | 5 | GitHub's runners | `ubuntu-latest` |
 
 So a repository does nothing: it calls the shared workflow, and its organisation's `CI_RUNS_ON` decides.
@@ -35,7 +35,7 @@ So a repository does nothing: it calls the shared workflow, and its organisation
 3. Set the variable:
 
    ```sh
-   gh variable set CI_RUNS_ON --org <organisation> --body '["self-hosted","buun"]'
+   gh variable set CI_RUNS_ON --org <organisation> --body '["buun"]'
    ```
 
 4. To go back to GitHub's runners, delete the variable. Nothing else changes.
@@ -45,7 +45,11 @@ before GitHub cancels it. A scale set that keeps no idle runner shows none onlin
 for it, check that its listener is running instead.
 
 A job that needs something only some machines have, such as a GPU, asks for it through the workflow's `runs-on` input
-(order 3 above), for example `runs-on: '["self-hosted","gpu"]'`, and a runner or scale set with that label takes it.
+(order 3 above), for example `runs-on: '["gpu"]'`, and a runner or scale set with that label takes it.
+
+Name the label alone, not `self-hosted` with it. A registered runner carries `self-hosted` by itself, but a runner scale
+set carries only its name and the labels it was given, and a job must match every label it names: a job asking for
+`["self-hosted","buun"]` never reaches a scale set. A repository's own `CI_RUNS_ON` wins over its organisation's.
 
 ## 3. What a self-hosted machine needs
 
